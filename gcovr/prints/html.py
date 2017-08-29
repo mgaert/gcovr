@@ -24,7 +24,7 @@ from string import Template
 from datetime import date
 from posixpath import commonprefix
 
-from ..version import version_str
+from version import version_str
 
 
 medium_coverage = 75.0

@@ -15,7 +15,7 @@ import sys
 import copy
 import subprocess
 
-from .path import search_file, aliases
+from path import search_file, aliases
 
 
 output_re = re.compile("[Cc]reating [`'](.*)'$")
@@ -207,6 +207,39 @@ def get_datafiles(flist, options):
                     (len(files), len(gcda_files) + len(gcno_files)))
             allfiles.update(gcda_files)
             allfiles.update(gcno_files)
+    return allfiles
+
+#
+# Get the list of datafiles in the directories specified by the user
+#
+def get_srcfiles(flist, options):
+    allfiles = set()
+    for dir_ in flist:
+        if options.gcov_files:
+            if options.verbose:
+                sys.stdout.write(
+                    "Scanning directory %s for gcov files...\n" % (dir_, )
+                )
+            files = search_file(".*\.gcov$", dir_)
+            gcov_files = [file for file in files if file.endswith('gcov')]
+            if options.verbose:
+                sys.stdout.write(
+                    "Found %d files (and will process %d)\n" %
+                    (len(files), len(gcov_files))
+                )
+            allfiles.update(gcov_files)
+        else:
+            if options.verbose:
+                sys.stdout.write(
+                    "Scanning directory %s for cpp/c files...\n" % (dir_, )
+                )
+            files = search_file(".*\.c(pp)$", dir_)
+            
+            if options.verbose:
+                sys.stdout.write(
+                    "Found %d files (and will process %d)\n" %
+                    (len(files), len(files)))
+            allfiles.update(files)
     return allfiles
 
 
@@ -449,19 +482,22 @@ def process_gcov_data(data_fname, covdata, options):
 # identifying the original gcc working directory (there is a bit of
 # trial-and-error here)
 #
-def process_datafile(filename, covdata, options):
+def process_datafile(filename, datafilename, covdata, options):
     #print ""
     #print "PROCESS",filename
     #
     # Launch gcov
     #
     abs_filename = os.path.abspath(filename)
+    abs_datafilename = os.path.abspath(datafilename)
     dirname, fname = os.path.split(abs_filename)
+    objdirname, datafname = os.path.split(abs_datafilename)
     #(name,ext) = os.path.splitext(base)
 
     potential_wd = []
     errors = []
     Done = False
+    potential_wd.append(dirname)
 
     if options.objdir:
         #print "X - objdir"
@@ -527,9 +563,9 @@ def process_datafile(filename, covdata, options):
                 break
 
     cmd = [
-        options.gcov_cmd, abs_filename,
+        options.gcov_cmd, fname,
         "--branch-counts", "--branch-probabilities", "--preserve-paths",
-        '--object-directory', dirname
+        '--object-directory', objdirname
     ]
 
     # NB: Currently, we will only parse English output
@@ -581,8 +617,9 @@ def process_datafile(filename, covdata, options):
                         break
                 if not exclude:
                     gcov_files['active'].append(fname)
-                elif options.verbose:
-                    sys.stdout.write("Excluding gcov file %s\n" % fname)
+                else: 
+                    if options.verbose:
+                        sys.stdout.write("Excluding gcov file %s\n" % fname)
                     gcov_files['exclude'].append(fname)
 
         #print "HERE", err, "XXX", source_re.search(err)
@@ -649,14 +686,28 @@ def get_coverage_data(paths, options):
 
     # Get data files
     datafiles = get_datafiles(paths, options)
-
+    srcfiles = get_srcfiles(paths, options)
+    
     # Get coverage data
     covdata = {}
-    for file_ in datafiles:
-        if options.gcov_files:
+    if options.gcov_files:
+        for file_ in datafiles:
             process_existing_gcov_file(file_, covdata, options)
-        else:
-            process_datafile(file_, covdata, options)
+    else:
+        for srcfile_ in srcfiles:
+            srcdirname, srcfname = os.path.split(srcfile_)
+            for file_ in datafiles:
+                dirname, datafile = os.path.split(file_)
+                if datafile[:-4] + 'cpp' == srcfname:
+                    datafile_ = file_
+                    break
+            
+            process_datafile(srcfile_,datafile_ , covdata, options)
+    # for file_ in datafiles:
+    #     if options.gcov_files:
+    #         process_existing_gcov_file(file_, covdata, options)
+    #     else:
+    #         process_datafile(srcfile_, file_, covdata, options)
     if options.verbose:
         sys.stdout.write(
             "Gathered coveraged data for " + str(len(covdata)) + " files\n"

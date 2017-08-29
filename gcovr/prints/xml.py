@@ -17,7 +17,7 @@ import time
 
 from xml.dom.minidom import getDOMImplementation
 
-from ..version import version_str
+from version import version_str
 
 
 #

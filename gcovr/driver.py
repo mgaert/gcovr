@@ -36,12 +36,12 @@ import sys
 
 from os.path import normpath
 
-from gcovr.version import version_str
-from gcovr.args import parse_arguments
-from gcovr.data import get_coverage_data
-from gcovr.prints.xml import print_xml_report
-from gcovr.prints.html import print_html_report
-from gcovr.prints.text import print_text_report, print_summary
+from version import version_str
+from args import parse_arguments
+from data import get_coverage_data
+from prints.xml import print_xml_report
+from prints.html import print_html_report
+from prints.text import print_text_report, print_summary
 
 
 ##
