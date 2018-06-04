@@ -79,6 +79,39 @@ def is_non_code(code):
     code = code.strip().translate(noncode_mapper)
     return len(code) == 0 or code.startswith("//") or code == 'else'
 
+#
+# Get the list of datafiles in the directories specified by the user
+#
+def get_srcfiles(flist, options):
+    allfiles = set()
+    for dir_ in flist:
+        if options.gcov_files:
+            if options.verbose:
+                sys.stdout.write(
+                    "Scanning directory %s for gcov files...\n" % (dir_, )
+                )
+            files = search_file(".*\.gcov$", dir_)
+            gcov_files = [file for file in files if file.endswith('gcov')]
+            if options.verbose:
+                sys.stdout.write(
+                    "Found %d files (and will process %d)\n" %
+                    (len(files), len(gcov_files))
+                )
+            allfiles.update(gcov_files)
+        else:
+            if options.verbose:
+                sys.stdout.write(
+                    "Scanning directory %s for cpp/c files...\n" % (dir_, )
+                )
+            files = search_file(".*\.c(pp)$", dir_)
+            
+            if options.verbose:
+                sys.stdout.write(
+                    "Found %d files (and will process %d)\n" %
+                    (len(files), len(files)))
+            allfiles.update(files)
+    return allfiles
+
 
 #
 # Process a single gcov datafile
