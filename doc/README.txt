@@ -1,57 +1,34 @@
 This directory supports the creation of the Gcovr User Guide using
-asciidoc and a2x commands.
+sphinx.
 
-HTML
+The necessary python packages have to be installed, e.g. with pip:
+
+    pip install -r requirements.txt
 
 The command
 
     make html
 
-creates the guide.html file.
+creates the documentation in the folder build/html.
 
+When updating for a new gcovr version,
+the screenshots will have to be regenerated.
+If you have wkhtmltopdf installed, run
 
-PDF
+    make clean-images
+    make
 
-The command
+Otherwise:
 
-    make pdf
+1.  delete the examples/*.png files
 
-creates the guide.tex file, which generates the guide.pdf file using
-dblatex.
+2.  in the examples directory, run
 
+        ./example_html.sh
 
+3.  make screenshots of
 
-EPUB
+        examples/example-html.html
+        examples/example-html-details.example.cpp.html
 
-The command
-
-    make epub
-
-creates the file make.epub.  Note that the `catalog.xml` file is
-used, which configures asciidoc to use the docbook XML data in the
-`epub` directory.  This is a bit of a hack.  It apparently works
-around a limitation of the MacPorts installation of asciidoc.
-
-
-
-NOTE: when updating the version of gcovr, the following files need to
-be manually updated:
-
-gcovr/doc/examples/example1.png:
-    cd gcovr/doc/examples
-    lbin ./example4.sh
-    open example1.html
-    <Capture this HTML page and save in the example1.png file.>
-    convert example1.png -resize 700x700 example1.png
-
-examples/example2_example1_cpp.png:
-    cd gcovr/doc/examples
-    lbin ./example5.sh
-    cd example1
-    open example2.html
-    <Click example1.cpp link>
-    <Capture this HTML page and save in the example2_example1.cpp.png file.>
-    convert example2_example1_cpp.png -resize 700x900 example2_example1_cpp.png
-    
-
-
+4.  resize the screenshots to a maximum width of 700 pixels

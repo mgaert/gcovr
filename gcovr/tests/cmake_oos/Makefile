@@ -6,23 +6,25 @@
 #   make
 #   gcovrtest
 
+CMAKE ?= cmake
+
 all:
 	mkdir -p build
-	cd build && cmake .. && make
+	cd build && $(CMAKE) .. && make
 
 run: txt xml html
 
 txt:
 	cd build && ./gcovrtest
-	../../../scripts/gcovr -r . -d -o coverage.txt
+	$(GCOVR) -d -o coverage.txt
 
 xml:
 	cd build && ./gcovrtest
-	../../../scripts/gcovr -r . -d -x -o coverage.xml
+	$(GCOVR) -d -x -o coverage.xml
 
 html:
 	cd build && ./gcovrtest
-	../../../scripts/gcovr -r . -d --html --html-details -o coverage.html
+	$(GCOVR) -d --html-details -o coverage.html
 
 clean:
 	rm -rf build

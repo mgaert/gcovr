@@ -1,36 +1,42 @@
-.PHONY: all anchors outputs clean manpages
+# Makefile for Sphinx documentation
+#
 
-export XML_CATALOG_FILES = catalog.xml
-PY = python
-XSLTPROC_OPTS := --stringparam toc.section.depth 2 --stringparam generate.section.toc.level 1
-DBLATEX_OPTS  := -P latex.output.revhistory=0 -P doc.collab.show=1 -P toc.section.depth=2
-A2X_OPTS      := -a toc -a icons -L -d article -v --xsltproc-opts "$(XSLTPROC_OPTS)" --dblatex-opts "$(DBLATEX_OPTS)"
+# You can set these variables from the command line.
+SPHINXOPTS    =
+SPHINXBUILD   = sphinx-build
+SPHINXPROJ    = gcovr
+SOURCEDIR     = source
+BUILDDIR      = build
 
-%.html: %.txt anchors outputs
-	asciidoc -a data-uri -v -b html -d article -n -a toc2 -a icons $<
+PYTHON ?= python
+SCREENSHOT_FROM_HTML = wkhtmltoimage --width 700 --quality 5
+SCREENSHOTS = images/screenshot-html.png images/screenshot-html-details.example.cpp.png
 
-# Ignore errors (dblatex may not be installed)
-%.pdf: %.txt anchors outputs
-	- a2x -f pdf $(A2X_OPTS) $<
+# Put it first so that "make" without argument is like "make help".
+help:
+	@$(SPHINXBUILD) -M help "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 
-# Ignore errors
-%.epub: %.txt anchors outputs
-	- a2x -f epub $(A2X_OPTS) $<
+.PHONY: help Makefile all outputs clean tests clean-images
 
-all: guide.html guide.pdf guide.epub
+# keep the screenshots
+.PRECIOUS: $(SCREENSHOTS)
 
-html: guide.html
+# Catch-all target: route all unknown targets to Sphinx using the new
+# "make mode" option.  $(O) is meant as a shortcut for $(SPHINXOPTS).
+%: Makefile $(SCREENSHOTS) outputs
+	@$(SPHINXBUILD) -M $@ "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 
-pdf: guide.pdf
+images/screenshot-%.png: examples/example-%.html
+	$(SCREENSHOT_FROM_HTML) $< $@
 
-epub: guide.epub
-
-anchors: guide.txt
-	$(PY) include_anchors.py $<
+examples/example-%.html:
+	cd examples; ./example_html.sh
 
 outputs:
-	../scripts/gcovr -h > examples/gcovr.out
+	gcovr -h > examples/gcovr.out
 
-clean:
-	- \rm -f guide.xml
-	- \rm -f examples/.*.py examples/.*.h examples/.*.cpp examples/.*.sh examples/runner examples/TEST*.xml examples/parsetab.py examples/*.orig examples/runner.cpp examples/*.html examples/*/*.html
+tests:
+	$(PYTHON) -m pytest examples -v
+
+clean-images:
+	rm -f $(SCREENSHOTS)

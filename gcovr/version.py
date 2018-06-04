@@ -1,23 +1,13 @@
 # -*- coding:utf-8 -*-
-#  _________________________________________________________________________
+
+# This file is part of gcovr <http://gcovr.com/>.
 #
-#  Gcovr: A parsing and reporting tool for gcov
-#  Copyright (c) 2013 Sandia Corporation.
-#  This software is distributed under the BSD License.
-#  Under the terms of Contract DE-AC04-94AL85000 with Sandia Corporation,
-#  the U.S. Government retains certain rights in this software.
-#  For more information, see the README.md file.
-#  _________________________________________________________________________
+# Copyright 2013-2018 the gcovr authors
+# Copyright 2013 Sandia Corporation
+# This software is distributed under the BSD license.
 
-import re
+# This file contains ONLY the version number.
+# It is executed by setup.py to load the current version.
+# This module may not depend on other parts of gcovr.
 
-__version__ = "4.0-prerelease"
-src_revision = "$Revision$"
-
-
-def version_str():
-    ans = __version__
-    m = re.match('\$Revision:\s*(\S+)\s*\$', src_revision)
-    if m:
-        ans = ans + " (r%s)" % (m.group(1))
-    return ans
+__version__ = "3.4"

@@ -9,3 +9,5 @@
 #  the U.S. Government retains certain rights in this software.
 #  For more information, see the README.md file.
 #  _________________________________________________________________________
+
+# Empty gcovr package

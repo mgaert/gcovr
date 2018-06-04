@@ -1,4 +1,45 @@
-William Hart - lead developer
-John Siirola - lead developer
+Gcovr is maintained by:
 
-Each release documents author contributions.
+    William Hart,
+    John Siirola,
+    and Lukas Atkinson.
+
+The following developers contributed to gcovr (ordered alphabetically):
+
+    Andrew Stone,
+    Arvin Schnell,
+    Attie Grande,
+    Bernhard Breinbauer,
+    Carlos Jenkins,
+    Christian Taedcke,
+    Dave George,
+    Dom Postorivo,
+    goriy,
+    ja11sop,
+    James Reynolds,
+    Jessica Levine,
+    Joel Klinghed,
+    John Siirola,
+    Jörg Kreuzberger,
+    Kai Blaschke,
+    Kevin Cai,
+    libPhipp,
+    Lukas Atkinson,
+    Luke Woydziak,
+    Martin Mraz,
+    Matsumoto Taichi,
+    Matthias Schmieder,
+    Matthieu Darbois,
+    Michał Pszona,
+    Mikael Salson,
+    Mikk Leini,
+    Nikolaj Schumacher,
+    Piotr Dziwinski,
+    Reto Schneider,
+    Robert Rosengren,
+    Songmin Li,
+    Steven Myint,
+    Sylvestre Ledru,
+    trapzero,
+    William Hart,
+    and possibly others.
