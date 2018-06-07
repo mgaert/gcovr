@@ -26,9 +26,9 @@ version = run_path('./gcovr/version.py')['__version__']
 
 setup(name='gcovr',
       version=version,
-      maintainer='William Hart',
-      maintainer_email='wehart@sandia.gov',
-      url='http://gcovr.com',
+      maintainer='Michael Gaertner',
+      maintainer_email='michael.gaertner@leuze.com',
+      url='',
       license='BSD',
       platforms=["any"],
       python_requires='>=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*',
@@ -61,5 +61,5 @@ setup(name='gcovr',
           'console_scripts': [
               'gcovr=gcovr.__main__:main',
           ],
-      },
+      }
       )

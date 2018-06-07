@@ -40,7 +40,7 @@ from multiprocessing import cpu_count
 from tempfile import mkdtemp
 from shutil import rmtree
 
-from .gcov import get_datafiles, process_existing_gcov_file, process_datafile
+from .gcov import get_srcfiles, get_datafiles, process_existing_gcov_file, process_datafile
 from .utils import (get_global_stats, build_filter, AlwaysMatchFilter,
                     DirectoryPrefixFilter, Logger)
 from .version import __version__
@@ -405,6 +405,7 @@ def create_argument_parser():
 
 
 COPYRIGHT = (
+    "Copyright 2018 Michael Gärtner\n"
     "Copyright 2013-2018 the gcovr authors\n"
     "Copyright 2013 Sandia Corporation\n"
     "Under the terms of Contract DE-AC04-94AL85000 with Sandia Corporation,\n"
@@ -505,6 +506,7 @@ def main(args=None):
         if options.objdir is not None:
             options.search_paths.append(options.objdir)
     datafiles = get_datafiles(options.search_paths, options)
+    srcfiles = get_srcfiles(options.search_paths, options)
 
     # Get coverage data
     with Workers(options.gcov_parallel, lambda: {
@@ -513,11 +515,18 @@ def main(args=None):
                  'toerase': set(),
                  'options': options}) as pool:
         logger.verbose_msg("Pool started with {} threads", pool.size())
-        for file_ in datafiles:
-            if options.gcov_files:
+        if options.gcov_files:
+            for file_ in datafiles:
                 pool.add(process_existing_gcov_file, file_)
-            else:
-                pool.add(process_datafile, file_)
+        else:
+            for srcfile_ in srcfiles:
+                srcdirname, srcfname = os.path.split(srcfile_)
+                for file_ in datafiles:
+                    dirname, datafile = os.path.split(file_)
+                    if datafile[:-4] + 'cpp' == srcfname:
+                        datafile_ = file_
+                        break
+                pool.add(process_datafile, srcfile_, datafile_)
         contexts = pool.wait()
 
     covdata = dict()

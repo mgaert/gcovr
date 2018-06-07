@@ -83,33 +83,14 @@ def is_non_code(code):
 # Get the list of datafiles in the directories specified by the user
 #
 def get_srcfiles(flist, options):
+    logger = Logger(options.verbose)
     allfiles = set()
     for dir_ in flist:
-        if options.gcov_files:
-            if options.verbose:
-                sys.stdout.write(
-                    "Scanning directory %s for gcov files...\n" % (dir_, )
-                )
-            files = search_file(".*\.gcov$", dir_)
-            gcov_files = [file for file in files if file.endswith('gcov')]
-            if options.verbose:
-                sys.stdout.write(
-                    "Found %d files (and will process %d)\n" %
-                    (len(files), len(gcov_files))
-                )
-            allfiles.update(gcov_files)
-        else:
-            if options.verbose:
-                sys.stdout.write(
-                    "Scanning directory %s for cpp/c files...\n" % (dir_, )
-                )
-            files = search_file(".*\.c(pp)$", dir_)
-            
-            if options.verbose:
-                sys.stdout.write(
-                    "Found %d files (and will process %d)\n" %
-                    (len(files), len(files)))
-            allfiles.update(files)
+        logger.verbose_msg("Scanning directory {} for cpp/c files...", dir_)
+        src_files = search_file(".*\.c(pp)$", dir_, exclude_dirs=options.exclude_dirs)
+        
+        logger.verbose_msg("Found {} files (and will process {})", len(src_files), len(src_files))
+        allfiles.update(src_files)
     return allfiles
 
 
@@ -544,23 +525,25 @@ class GcovParser(object):
 # identifying the original gcc working directory (there is a bit of
 # trial-and-error here)
 #
-def process_datafile(filename, covdata, options, toerase, workdir):
+def process_datafile(filename, datafilename, covdata, options, toerase, workdir):
     logger = Logger(options.verbose)
 
     logger.verbose_msg("Processing file: {}", filename)
 
     abs_filename = os.path.abspath(filename)
+    abs_datafilename = os.path.abspath(datafilename)
     dirname, fname = os.path.split(abs_filename)
+    objdirname, datafname = os.path.split(abs_datafilename)
 
     errors = []
 
     potential_wd = find_potential_working_directories_via_objdir(
-        abs_filename, options.objdir, errors=errors)
+        abs_datafilename, options.objdir, errors=errors)
 
     # no objdir was specified (or it was a parent dir); walk up the dir tree
     if len(potential_wd) == 0:
         potential_wd.append(options.root_dir)
-        wd = os.path.split(abs_filename)[0]
+        wd = os.path.split(abs_datafilename)[0]
         while True:
             potential_wd.append(wd)
             wd = os.path.split(wd)[0]
@@ -593,19 +576,19 @@ def process_datafile(filename, covdata, options, toerase, workdir):
         # iteration.
 
         done = run_gcov_and_process_files(
-            abs_filename, dirname, covdata,
+            abs_filename, abs_datafilename, dirname, objdirname, covdata,
             options=options, logger=logger, toerase=toerase, errors=errors, chdir=dir_, tempdir=workdir)
 
         if options.delete:
-            if not abs_filename.endswith('gcno'):
-                toerase.add(abs_filename)
+            if not abs_datafilename.endswith('gcno'):
+                toerase.add(abs_datafilename)
 
     if not done:
         logger.warn(
             "GCOV produced the following errors processing {filename}:\n"
             "\t{errors}\n"
             "\t(gcovr could not infer a working directory that resolved it.)",
-            filename=filename, errors="\n\t".join(errors))
+            filename=datafilename, errors="\n\t".join(errors))
 
 
 def find_potential_working_directories_via_objdir(abs_filename, objdir, errors):
@@ -663,14 +646,10 @@ def expand_subdirectories(*directories):
 
 
 def run_gcov_and_process_files(
-        abs_filename, dirname, covdata, options, logger, errors, toerase, chdir, tempdir):
+        abs_filename, abs_datafilename, dirname, objdirname, covdata, options, logger, errors, toerase, chdir, tempdir):
     # If the first element of cmd - the executable name - has embedded spaces
     # it probably includes extra arguments.
-    cmd = options.gcov_cmd.split(' ') + [
-        abs_filename,
-        "--branch-counts", "--branch-probabilities", "--preserve-paths",
-        '--object-directory', dirname
-    ]
+    cmd = options.gcov_cmd.split(' ') + ["--branch-counts", "--branch-probabilities", "--preserve-paths", "--object-directory", objdirname, abs_filename]
 
     # NB: Currently, we will only parse English output
     env = dict(os.environ)
@@ -705,7 +684,7 @@ def run_gcov_and_process_files(
     else:
         # Process *.gcov files
         for fname in active_gcov_files:
-            process_gcov_data(fname, covdata, abs_filename, options)
+            process_gcov_data(fname, covdata, abs_datafilename, options)
         done = True
 
     if not options.keep:

@@ -85,7 +85,7 @@ Install development version from GitHub:
 
 .. code:: bash
 
-    pip install git+https://github.com/gcovr/gcovr.git
+    pip install git+https://github.com/mgaert/gcovr.git
 
 .. warning::
     Even though gcovr could be used as a single python script file,
