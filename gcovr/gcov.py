@@ -87,7 +87,7 @@ def get_srcfiles(flist, options):
     allfiles = set()
     for dir_ in flist:
         logger.verbose_msg("Scanning directory {} for cpp/c files...", dir_)
-        src_files = search_file(".*\.c(pp)$", dir_, exclude_dirs=options.exclude_dirs)
+        src_files = search_file(".*\.(cpp|c)$", dir_, exclude_dirs=options.exclude_dirs)
         
         logger.verbose_msg("Found {} files (and will process {})", len(src_files), len(src_files))
         allfiles.update(src_files)
@@ -567,7 +567,7 @@ def process_datafile(filename, datafilename, covdata, options, toerase, workdir)
     # @latk - 2018: not true, this iterates from the start of the list.
     # Is that a bug?
     done = False
-    for dir_ in potential_wd:
+    for dir_ in reversed(potential_wd):
         if done:
             break
 

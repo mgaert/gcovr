@@ -525,6 +525,8 @@ def main(args=None):
                     dirname, datafile = os.path.split(file_)
                     if datafile[:-4] + 'cpp' == srcfname:
                         pool.add(process_datafile, srcfile_, file_)
+                    if datafile[:-4] + 'c' == srcfname:
+                        pool.add(process_datafile, srcfile_, file_)
         contexts = pool.wait()
 
     covdata = dict()
