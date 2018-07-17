@@ -19,7 +19,7 @@ from .workers import locked_directory
 from .coverage import CoverageData
 
 output_re = re.compile("[Cc]reating [`'](.*)'$")
-source_re = re.compile("[Cc](annot|ould not) open (source|graph|output) file")
+source_re = re.compile("[Cc](annot|ould not) open (source|graph|data|output) file")
 
 exclude_line_flag = "_EXCL_"
 exclude_line_pattern = re.compile('([GL]COVR?)_EXCL_(LINE|START|STOP)')
@@ -64,6 +64,7 @@ def get_datafiles(flist, options):
                 filenm for filenm in files if
                 filenm.endswith('gcno') and filenm[:-2] + 'da' not in tmp
             ]
+
             logger.verbose_msg(
                 "Found {} files (and will process {})",
                 len(files), len(gcda_files) + len(gcno_files))
