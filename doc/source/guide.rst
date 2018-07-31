@@ -7,34 +7,9 @@ Gcovr User Guide
     Please view the user guide for the latest gcovr release at
     http://gcovr.com/guide.html
 
-.. topic:: Abstract
-
-    .. include:: ../../README.rst
-        :start-after: .. begin abstract
-        :end-before: .. end abstract
-
-    This documentation describes Gcovr |release|.
-
-.. contents::
-    :depth: 2
-
-.. footer:: last updated |timestamp|
-
-.. |timestamp| date::
-
-
-Overview
---------
-
-Gcovr is a Python package that includes a self-contained ``gcovr``
-command.  Gcovr is an extension of ``gcov``, a GNU utility that
-summarizes the lines of code that are executed - or "covered" -
-while running an executable.  The ``gcovr`` command interprets ``gcov``
-data files to summarize code coverage in several formats:
-
--   Text output with coverage statistics indicated with summary statistics and lists of uncovered line, and
--   XML output that is compatible with the Cobertura code coverage utility.
--   HTML output with coverage rates indicated using colored bar graphs.
+.. include:: ../../README.rst
+    :start-after: .. begin abstract
+    :end-before: .. end abstract
 
 The `Gcovr Home Page <http://gcovr.com>`__ is
 `<http://gcovr.com>`__.
@@ -44,13 +19,22 @@ Automated test results are available through
 Gcovr is available under the
 `BSD <http://www.gnu.org/licenses/bsd.html>`__ license.
 
-The Gcovr User Guide provides the following documentation:
+This documentation describes Gcovr |release|.
 
--   `Getting Started`_: Some simple examples that illustrate how to use Gcovr
--   `The gcovr Command`_: Description of command-line options for ``gcovr``
--   `Installation`_: How to install Gcovr
--   `Status and Future Plans`_: Comments on the past, present and future of Gcovr
+This User Guide provides the following sections:
 
+.. contents::
+    :local:
+    :depth: 2
+
+Related documents:
+
+- :doc:`installation`
+- :doc:`contributing` (includes instructions for bug reports)
+- :doc:`cookbook`
+- :doc:`faq`
+- :doc:`changelog`
+- :doc:`license`
 
 Getting Started
 ---------------
@@ -72,7 +56,6 @@ to test coverage of the following program:
 
 This code executes several subroutines in this program,
 but some lines in the program are not executed.
-
 
 Tabular Output of Code Coverage
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -249,16 +232,6 @@ The above `Getting Started`_ guide
 illustrates the use of some command line options.
 `Using Filters`_ is discussed below.
 
-.. admonition:: TODO
-
-    WEH: This section needs to be added to explain the options that
-    specify where files are located.
-
-    ## Controlling Coverage
-
-    TODO: document options that control where data files and gcov files
-    are found.
-
 
 Using Filters
 -------------
@@ -315,6 +288,47 @@ This is useful mostly when running gcov yourself,
 and then invoking gcovr with :option:`-g`/:option:`--use-gcov-files`.
 But these filters also apply when gcov is launched by gcovr.
 
+Speeding up coverage data search
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The :option:`--exclude-directories` filter is used
+while searching for raw coverage data
+(or for existing ``.gcov`` files when :option:`--use-gcov-files` is active).
+This filter is matched against directory paths, not file paths.
+If a directory matches,
+all its contents (files and subdirectories) will be excluded from the search.
+For example, consider this build directory::
+
+    build/
+    ├─ main.o
+    ├─ main.gcda
+    ├─ main.gcno
+    ├─ a/
+    │  ├─ awesome_code.o
+    │  ├─ awesome_code.gcda
+    │  └─ awesome_code.gcno
+    └─ b/
+       ├─ better_code.o
+       ├─ better_code.gcda
+       └─ better_code.gcno
+
+If we run ``gcovr --exclude-directories 'build/a$'``,
+this will exclude anything in the ``build/a`` directory
+but will use the coverage data for ``better_code.o`` and ``main.o``.
+
+This can speed up gcovr when you have a complicated build directory structure.
+Consider also using the :option:`search_paths`
+or :option:`--object-directory` arguments
+to specify where gcovr starts searching.
+If you are unsure which directories are being searched,
+run gcovr in :option:`--verbose` mode.
+
+For each found coverage data file gcovr will invoke the ``gcov`` tool.
+This is typically the slowest part,
+and other filters can only be applied *after* this step.
+In some cases, parallel execution with the :option:`-j` option
+might be helpful to speed up processing.
+
 Filters for symlinks
 ~~~~~~~~~~~~~~~~~~~~
 
@@ -353,53 +367,15 @@ or a relative path to the real path::
     please update this section by submitting a pull request
     (see our :doc:`contributing guide <contributing>`).
 
-Installation
-------------
-
-.. include:: ../../README.rst
-    :start-after: .. begin installation
-    :end-before: .. end installation
-
-Which environments does ``gcovr`` support?
-
--   Python: 2.7 and 3.4+.
-
-    The automated tests run on CPython 2.7, 3.4, and 3.5, and PyPy 2.7 and 3.5.
-
-    Python 2.6 is no longer supported.
-    The last stable release for that Python version was 3.4.
-
--   Operating System: Linux, Windows, and macOS.
-
-    The automated tests run on Ubuntu 14.04 and Windows Server 2012.
-
--   Compiler: GCC and Clang.
-
-    The automated tests run on GCC 5.
-
-Status and Future Plans
------------------------
-
-The Gcovr 3.0 release is the first release that is hosted a GitHub.
-Previous Gcovr development was hosted at Sandia National Laboratories
-as part of the FAST project.  However, Gcovr is now widely used
-outside of Sandia, and GitHub will facilitate the integration of
-contributions from a wider set of developers.
-
 
 Acknowledgements
 ----------------
 
 .. include:: ../../AUTHORS.txt
 
-We would like to thank the following organizations for providing
-web hosting and computing resources:
-
--   The development of Gcovr has been partially supported
-    by Sandia National Laboratories.  Sandia National Laboratories is
-    a multi-program laboratory managed and operated by Sandia Corporation,
-    a wholly owned subsidiary of Lockheed Martin Corporation, for the
-    U.S.  Department of Energy's National Nuclear Security Administration
-    under contract DE-AC04-94AL85000.
--   The source code is hosted on GitHub.
--   The automated test suites are run by Travis CI and Appveyor.
+The development of Gcovr has been partially supported
+by Sandia National Laboratories.  Sandia National Laboratories is
+a multi-program laboratory managed and operated by Sandia Corporation,
+a wholly owned subsidiary of Lockheed Martin Corporation, for the
+U.S.  Department of Energy's National Nuclear Security Administration
+under contract DE-AC04-94AL85000.

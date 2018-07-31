@@ -23,7 +23,10 @@ gcovr
    :maxdepth: 2
    :caption: Contents:
 
+   installation
    guide
+   cookbook
+   faq
    contributing
    changelog
    license
