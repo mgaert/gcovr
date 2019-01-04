@@ -12,11 +12,9 @@ import subprocess
 import sys
 import io
 
-from os.path import normpath
-
-from .utils import aliases, search_file, Logger
+from .utils import search_file, Logger
 from .workers import locked_directory
-from .coverage import CoverageData
+from .coverage import FileCoverage
 
 output_re = re.compile("[Cc]reating [`'](.*)'$")
 source_re = re.compile("[Cc](annot|ould not) open (source|graph|output) file")
@@ -28,48 +26,53 @@ c_style_comment_pattern = re.compile('/\*.*?\*/')
 cpp_style_comment_pattern = re.compile('//.*?$')
 
 
-#
-# Get the list of datafiles in the directories specified by the user
-#
-def get_datafiles(flist, options):
-    logger = Logger(options.verbose)
+def find_existing_gcov_files(search_path, logger, exclude_dirs):
+    """Find .gcov files under the given search path.
+    """
+    logger.verbose_msg(
+        "Scanning directory {} for gcov files...", search_path)
+    gcov_files = list(search_file(
+        re.compile(".*\.gcov$").match, search_path,
+        exclude_dirs=exclude_dirs))
+    logger.verbose_msg(
+        "Found {} files (and will process all of them)",
+        len(gcov_files))
+    return gcov_files
 
-    allfiles = set()
-    for dir_ in flist:
-        if options.gcov_files:
-            logger.verbose_msg(
-                "Scanning directory {} for gcov files...", dir_)
-            files = search_file(
-                ".*\.gcov$", dir_, exclude_dirs=options.exclude_dirs)
-            gcov_files = [file for file in files if file.endswith('gcov')]
-            logger.verbose_msg(
-                "Found {} files (and will process {})",
-                len(files), len(gcov_files))
-            allfiles.update(gcov_files)
-        else:
-            logger.verbose_msg(
-                "Scanning directory {} for gcda/gcno files...", dir_)
-            files = search_file(
-                ".*\.gc(da|no)$", dir_, exclude_dirs=options.exclude_dirs)
-            # gcno files will *only* produce uncovered results; however,
-            # that is useful information for the case where a compilation
-            # unit is never actually exercised by the test code.  So, we
-            # will process gcno files, but ONLY if there is no corresponding
-            # gcda file.
-            gcda_files = [
-                filenm for filenm in files if filenm.endswith('gcda')
-            ]
-            tmp = set(gcda_files)
-            gcno_files = [
-                filenm for filenm in files if
-                filenm.endswith('gcno') and filenm[:-2] + 'da' not in tmp
-            ]
-            logger.verbose_msg(
-                "Found {} files (and will process {})",
-                len(files), len(gcda_files) + len(gcno_files))
-            allfiles.update(gcda_files)
-            allfiles.update(gcno_files)
-    return allfiles
+
+def find_datafiles(search_path, logger, exclude_dirs):
+    """Find .gcda and .gcno files under the given search path.
+
+    The .gcno files will *only* produce uncovered results.
+    However, that is useful information when a compilation unit
+    is never actually exercised by the test code.
+    So we ONLY return them if there's no corresponding .gcda file.
+    """
+    logger.verbose_msg(
+        "Scanning directory {} for gcda/gcno files...", search_path)
+    files = list(search_file(
+        re.compile(".*\.gc(da|no)$").match, search_path,
+        exclude_dirs=exclude_dirs))
+    gcda_files = []
+    gcno_files = []
+    known_file_stems = set()
+    for filename in files:
+        stem, ext = os.path.splitext(filename)
+        if ext == '.gcda':
+            gcda_files.append(filename)
+            known_file_stems.add(stem)
+        elif ext == '.gcno':
+            gcno_files.append(filename)
+    # remove gcno files that match a gcno stem
+    gcno_files = [
+        filename
+        for filename in gcno_files
+        if os.path.splitext(filename)[0] not in known_file_stems
+    ]
+    logger.verbose_msg(
+        "Found {} files (and will process {})",
+        len(files), len(gcda_files) + len(gcno_files))
+    return gcda_files + gcno_files
 
 
 noncode_mapper = dict.fromkeys(ord(i) for i in '}{')
@@ -114,8 +117,10 @@ def process_gcov_data(data_fname, covdata, source_fname, options, currdir=None):
     parser.parse_all_lines(
         INPUT,
         exclude_unreachable_branches=options.exclude_unreachable_branches,
+        exclude_throw_branches=options.exclude_throw_branches,
         ignore_parse_errors=options.gcov_ignore_parse_errors)
-    parser.update_coverage(covdata)
+
+    covdata.setdefault(fname, FileCoverage(fname)).update(parser.coverage)
 
     INPUT.close()
 
@@ -158,14 +163,14 @@ def guess_source_file_name(
 
 def guess_source_file_name_via_aliases(gcovname, currdir, data_fname):
     common_dir = os.path.commonprefix([data_fname, currdir])
-    fname = aliases.unalias_path(os.path.join(common_dir, gcovname))
+    fname = os.path.realpath(os.path.join(common_dir, gcovname))
     if os.path.exists(fname):
         return fname
 
     initial_fname = fname
 
     data_fname_dir = os.path.dirname(data_fname)
-    fname = aliases.unalias_path(os.path.join(data_fname_dir, gcovname))
+    fname = os.path.realpath(os.path.join(data_fname_dir, gcovname))
     if os.path.exists(fname):
         return fname
 
@@ -206,11 +211,7 @@ class GcovParser(object):
     def __init__(self, fname, logger):
         self.logger = logger
         self.excluding = []
-        self.noncode = set()
-        self.uncovered = set()
-        self.uncovered_exceptional = set()
-        self.covered = dict()
-        self.branches = dict()
+        self.coverage = FileCoverage(fname)
         # self.first_record = True
         self.fname = fname
         self.lineno = 0
@@ -221,10 +222,14 @@ class GcovParser(object):
         self.deferred_exceptions = []
         self.last_was_specialization_section_marker = False
 
-    def parse_all_lines(self, lines, exclude_unreachable_branches, ignore_parse_errors):
+    def parse_all_lines(
+        self, lines, exclude_unreachable_branches, exclude_throw_branches,
+        ignore_parse_errors
+    ):
         for line in lines:
             try:
-                self.parse_line(line, exclude_unreachable_branches)
+                self.parse_line(
+                    line, exclude_unreachable_branches, exclude_throw_branches)
             except Exception as ex:
                 self.unrecognized_lines.append(line)
                 self.deferred_exceptions.append(ex)
@@ -232,11 +237,15 @@ class GcovParser(object):
         self.check_unclosed_exclusions()
         self.check_unrecognized_lines(ignore_parse_errors=ignore_parse_errors)
 
-    def parse_line(self, line, exclude_unreachable_branches):
+    def parse_line(
+        self, line, exclude_unreachable_branches, exclude_throw_branches
+    ):
         # If this is a tag line, we stay on the same line number
         # and can return immediately after processing it.
         # A tag line cannot hold exclusion markers.
-        if self.parse_tag_line(line, exclude_unreachable_branches):
+        if self.parse_tag_line(
+            line, exclude_unreachable_branches, exclude_throw_branches
+        ):
             return
 
         # If this isn't a tag line, this is metadata or source code.
@@ -288,29 +297,29 @@ class GcovParser(object):
         if firstchar == '-' or (self.excluding and firstchar in "#=0123456789"):
             # remember certain non-executed lines
             if self.excluding or is_non_code(code):
-                self.noncode.add(self.lineno)
+                self.coverage.line(self.lineno).noncode = True
             return True
 
-        if firstchar == '#':
+        # "#": uncovered
+        # "=": uncovered, but only reachable through exceptions
+        if firstchar in "#=":
             if is_non_code(code):
-                self.noncode.add(self.lineno)
+                self.coverage.line(self.lineno).noncode = True
             else:
-                self.uncovered.add(self.lineno)
-            return True
-
-        if firstchar == '=':
-            self.uncovered_exceptional.add(self.lineno)
+                self.coverage.line(self.lineno).count = 0
             return True
 
         if firstchar in "0123456789":
             # GCOV 8 marks partial coverage
             # with a trailing "*" after the execution count.
-            self.covered[self.lineno] = int(status.rstrip('*'))
+            self.coverage.line(self.lineno).count = int(status.rstrip('*'))
             return True
 
         return False
 
-    def parse_tag_line(self, line, exclude_unreachable_branches):
+    def parse_tag_line(
+        self, line, exclude_unreachable_branches, exclude_throw_branches
+    ):
         # Start or end a template/macro specialization section
         if line.startswith('-----'):
             self.last_was_specialization_section_marker = True
@@ -348,23 +357,26 @@ class GcovParser(object):
             return True
 
         if line.startswith('branch '):
-            exclude_branch = False
-            if exclude_unreachable_branches and \
-                    self.lineno == self.last_code_lineno:
-                if self.last_code_line_excluded:
-                    exclude_branch = True
-                    exclude_reason = "marked with exclude pattern"
-                else:
-                    code = self.last_code_line
-                    code = re.sub(cpp_style_comment_pattern, '', code)
-                    code = re.sub(c_style_comment_pattern, '', code)
-                    code = code.strip()
-                    code_nospace = code.replace(' ', '')
-                    exclude_branch = \
-                        code in ['', '{', '}'] or code_nospace == '{}'
+
+            exclude_reason = None
+
+            if self.lineno != self.last_code_lineno:
+                # apply no exclusions if this doesn't look like a code line.
+                pass
+
+            elif self.last_code_line_excluded:
+                exclude_reason = "marked with exclude pattern"
+
+            elif exclude_unreachable_branches:
+                code = self.last_code_line
+                code = re.sub(cpp_style_comment_pattern, '', code)
+                code = re.sub(c_style_comment_pattern, '', code)
+                code = code.strip()
+                code_nospace = code.replace(' ', '')
+                if code_nospace in ['', '{', '}', '{}']:
                     exclude_reason = "detected as compiler-generated code"
 
-            if exclude_branch:
+            if exclude_reason is not None:
                 self.logger.verbose_msg(
                     "Excluding unreachable branch on line {line} "
                     "in file {fname}: {reason}",
@@ -372,13 +384,44 @@ class GcovParser(object):
                     reason=exclude_reason)
                 return True
 
+            # branch tags can look like:
+            #   branch  1 never executed
+            #   branch  2 taken 12%
+            #   branch  3 taken 12% (fallthrough)
+            #   branch  3 taken 12% (throw)
+            # where the percentage should usually be a count.
+
             fields = line.split()  # e.g. "branch  0 taken 0% (fallthrough)"
+            assert len(fields) >= 4, \
+                "Unclear branch tag format: {}".format(line)
+
             branch_index = int(fields[1])
-            try:
-                count = int(fields[3])
-            except (ValueError, IndexError):
+
+            if fields[2:] == ['never', 'executed']:
                 count = 0
-            self.branches.setdefault(self.lineno, {})[branch_index] = count
+
+            elif fields[3].endswith('%'):
+                percentage = int(fields[3][:-1])
+                # can't really convert percentage to count,
+                # so normalize to zero/one
+                count = 1 if percentage > 0 else 0
+
+            else:
+                count = int(fields[3])
+
+            is_fallthrough = fields[-1] == '(fallthrough)'
+            is_throw = fields[-1] == '(throw)'
+
+            if exclude_throw_branches and is_throw:
+                return True
+
+            branch_cov = self.coverage.line(self.lineno).branch(branch_index)
+            branch_cov.count += count
+            if is_fallthrough:
+                branch_cov.fallthrough = True
+            if is_throw:
+                branch_cov.throw = True
+
             return True
 
         return False
@@ -465,178 +508,133 @@ class GcovParser(object):
 
         sys.exit(1)
 
-    def update_coverage(self, covdata):
-        self.logger.verbose_msg(
-            "uncovered: {parser.uncovered}\n"
-            "covered:   {parser.covered}\n"
-            "branches:  {parser.branches}\n"
-            "noncode:   {parser.noncode}",
-            parser=self)
 
-        # If the file is already in covdata, then we
-        # remove lines that are covered here.  Otherwise,
-        # initialize covdata
-        if self.fname not in covdata:
-            covdata[self.fname] = CoverageData(self.fname)
-        covdata[self.fname].update(
-            uncovered=self.uncovered,
-            uncovered_exceptional=self.uncovered_exceptional,
-            covered=self.covered,
-            branches=self.branches,
-            noncode=self.noncode)
-
-
-#
-# Process a datafile (generated by running the instrumented application)
-# and run gcov with the corresponding arguments
-#
-# This is trickier than it sounds: The gcda/gcno files are stored in the
-# same directory as the object files; however, gcov must be run from the
-# same directory where gcc/g++ was run.  Normally, the user would know
-# where gcc/g++ was invoked from and could tell gcov the path to the
-# object (and gcda) files with the --object-directory command.
-# Unfortunately, we do everything backwards: gcovr looks for the gcda
-# files and then has to infer the original gcc working directory.
-#
-# In general, (but not always) we can assume that the gcda file is in a
-# subdirectory of the original gcc working directory, so we will first
-# try ".", and on error, move up the directory tree looking for the
-# correct working directory (letting gcov's own error codes dictate when
-# we hit the right directory).  This covers 90+% of the "normal" cases.
-# The exception to this is if gcc was invoked with "-o ../[...]" (i.e.,
-# the object directory was a peer (not a parent/child) of the cwd.  In
-# this case, things are really tough.  We accept an argument
-# (--object-directory) that SHOULD BE THE SAME as the one povided to
-# gcc.  We will then walk that path (backwards) in the hopes of
-# identifying the original gcc working directory (there is a bit of
-# trial-and-error here)
-#
 def process_datafile(filename, covdata, options, toerase, workdir):
+    r"""Run gcovr in a suitable directory to collect coverage from gcda files.
+
+    Params:
+        filename (path): the path to a gcda or gcno file
+        covdata (dict, mutable): the global covdata dictionary
+        options (object): the configuration options namespace
+        toerase (set, mutable): files that should be deleted later
+        workdir (path or None): the per-thread work directory
+
+    Returns:
+        Nothing.
+
+    Finding a suitable working directory is tricky.
+    The coverage files (gcda and gcno) are stored next to object (.o) files.
+    However, gcov needs to also resolve the source file name.
+    The relative source file paths in the coverage data
+    are relative to the gcc working directory.
+    Therefore, gcov must be invoked in the same directory as gcc.
+    How to find that directory? By various heuristics.
+
+    This is complicated by the problem that the build process tells gcc
+    where to run, where the sources are, and where to put the object files.
+    We only know the object files and have to work everything out in reverse.
+
+    If present, the *workdir* argument is always tried first.
+
+    Ideally, the build process only runs gcc from *one* directory
+    and the user can provide this directory as the ``--object-directory``.
+    If it exists, we try that path as a workdir,
+    If the path is relative,
+    it is resolved relative to the gcovr cwd and the object file location.
+
+    We next try the ``--root`` directory.
+    TODO: should probably also be the gcovr start directory.
+
+    If none of those work, we assume that
+    the object files are in a subdirectory of the gcc working directory,
+    i.e. we can walk the directory tree upwards.
+
+    All of this works fine unless gcc was invoked like ``gcc -o ../path``,
+    i.e. the object files are in a sibling directory.
+    TODO: So far there is no good way to address this case.
+    """
     logger = Logger(options.verbose)
 
     logger.verbose_msg("Processing file: {}", filename)
 
     abs_filename = os.path.abspath(filename)
-    dirname, fname = os.path.split(abs_filename)
 
     errors = []
 
-    potential_wd = find_potential_working_directories_via_objdir(
-        abs_filename, options.objdir, errors=errors)
+    potential_wd = []
 
-    # no objdir was specified (or it was a parent dir); walk up the dir tree
-    if len(potential_wd) == 0:
-        potential_wd.append(options.root_dir)
-        wd = os.path.split(abs_filename)[0]
-        while True:
+    if options.objdir:
+        potential_wd = find_potential_working_directories_via_objdir(
+            abs_filename, options.objdir, error=errors.append)
+
+    # no objdir was specified or objdir didn't exist
+    consider_parent_directories = not potential_wd
+
+    # Always add the root directory
+    potential_wd.append(options.root_dir)
+
+    if consider_parent_directories:
+        wd = os.path.dirname(abs_filename)
+        while wd != potential_wd[-1]:
             potential_wd.append(wd)
-            wd = os.path.split(wd)[0]
-            if wd == potential_wd[-1]:
-                #
-                # Stop at the root of the file system
-                #
-                break
-    else:
-        # Always add the root directory
-        potential_wd.append(options.root_dir)
+            wd = os.path.dirname(wd)
 
     # Ensure the working directory for this thread is first (if any)
     if workdir is not None:
         potential_wd = [workdir] + potential_wd
 
-    # Iterate from the end of the potential_wd list, which is the root
-    # directory
-
-    #
-    # @latk - 2018: not true, this iterates from the start of the list.
-    # Is that a bug?
-    done = False
-    for dir_ in potential_wd:
-        if done:
-            break
-
-        # NB: either len(potential_wd) == 1, or all entires are absolute
-        # paths, so we don't have to chdir(starting_dir) at every
-        # iteration.
-
+    for wd in potential_wd:
         done = run_gcov_and_process_files(
-            abs_filename, dirname, covdata,
-            options=options, logger=logger, toerase=toerase, errors=errors, chdir=dir_, tempdir=workdir)
+            abs_filename, covdata,
+            options=options, logger=logger, toerase=toerase,
+            error=errors.append, chdir=wd, tempdir=workdir)
 
         if options.delete:
             if not abs_filename.endswith('gcno'):
                 toerase.add(abs_filename)
 
-    if not done:
-        logger.warn(
-            "GCOV produced the following errors processing {filename}:\n"
-            "\t{errors}\n"
-            "\t(gcovr could not infer a working directory that resolved it.)",
-            filename=filename, errors="\n\t".join(errors))
+        if done:
+            return
+
+    logger.warn(
+        "GCOV produced the following errors processing {filename}:\n"
+        "\t{errors}\n"
+        "\t(gcovr could not infer a working directory that resolved it.)",
+        filename=filename, errors="\n\t".join(errors))
 
 
-def find_potential_working_directories_via_objdir(abs_filename, objdir, errors):
-    if not objdir:
-        return []
+def find_potential_working_directories_via_objdir(abs_filename, objdir, error):
+    # absolute path - just return the objdir
+    if os.path.isabs(objdir):
+        if os.path.isdir(objdir):
+            return [objdir]
 
-    src_components = abs_filename.split(os.sep)
-    components = normpath(objdir).split(os.sep)
-
-    # find last different component
-    idx = 1
-    while idx <= len(components) and idx <= len(src_components):
-        if components[-idx] != src_components[-idx]:
-            break
-        idx += 1
-
-    if idx > len(components):
-        return []  # a parent dir; the normal process will find it
-
-    if components[-idx] == '..':
-        # NB: os.path.join does not re-add leading '/' characters!?!
-        dirs = [os.path.sep.join(src_components[:-idx])]
-        while idx <= len(components) and components[-idx] == '..':
-            dirs = list(expand_subdirectories(*dirs))
-            idx += 1
-        return dirs
-
-    if components[0] == '':
-        # absolute path
-        tmp = [objdir]
+    # relative path: check relative to both the cwd and the gcda file
     else:
-        # relative path: check relative to both the cwd and the
-        # gcda file
-        tmp = [
-            os.path.join(x, objdir) for x in
-            [os.path.dirname(abs_filename), os.getcwd()]
+        potential_wd = [
+            testdir
+            for prefix in [os.path.dirname(abs_filename), os.getcwd()]
+            for testdir in [os.path.join(prefix, objdir)]
+            if os.path.isdir(testdir)
         ]
 
-    potential_wd = [testdir for testdir in tmp if os.path.isdir(testdir)]
+        if potential_wd:
+            return potential_wd
 
-    if len(potential_wd) == 0:
-        errors.append("ERROR: cannot identify the location where GCC "
-                      "was run using --object-directory=%s\n" %
-                      objdir)
+    error("ERROR: cannot identify the location where GCC "
+          "was run using --object-directory=%s\n" % objdir)
 
-    return potential_wd
-
-
-def expand_subdirectories(*directories):
-    for directory in directories:
-        for entry in os.listdir(directory):
-            subdir = os.path.join(directory, entry)
-            if os.path.isdir(subdir):
-                yield subdir
+    return []
 
 
 def run_gcov_and_process_files(
-        abs_filename, dirname, covdata, options, logger, errors, toerase, chdir, tempdir):
+        abs_filename, covdata, options, logger, error, toerase, chdir, tempdir):
     # If the first element of cmd - the executable name - has embedded spaces
     # it probably includes extra arguments.
     cmd = options.gcov_cmd.split(' ') + [
         abs_filename,
         "--branch-counts", "--branch-probabilities", "--preserve-paths",
-        '--object-directory', dirname
+        '--object-directory', os.path.dirname(abs_filename),
     ]
 
     # NB: Currently, we will only parse English output
@@ -667,7 +665,7 @@ def run_gcov_and_process_files(
 
     if source_re.search(err):
         # gcov tossed errors: try the next potential_wd
-        errors.append(err)
+        error(err)
         done = False
     else:
         # Process *.gcov files

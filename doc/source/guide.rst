@@ -368,6 +368,99 @@ or a relative path to the real path::
     (see our :doc:`contributing guide <contributing>`).
 
 
+Configuration Files
+-------------------
+
+.. warning::
+    Config files are an experimental feature
+    and may be subject to change without prior notice.
+
+Defaults for the command line options can be set in a configuration file.
+Example::
+
+    filter = src/
+    html-details = yes  # info about each source file
+    output = build/coverage.html
+
+How the configuration file is found:
+If a :option:`--config` option is provided, that file is used.
+Otherwise, a ``gcovr.cfg`` file in the :option:`--root` directory is used,
+if that file exists.
+
+Each line contains a ``key = value`` pair.
+Space around the ``=`` is optional.
+The value may be empty.
+Comments start with a hash ``#`` and ignore the rest of the line,
+but cannot start within a word.
+Empty lines are also ignored.
+
+The available config keys correspond closely to the command line options,
+and are parsed similarly.
+In most cases, the name of a long command line option
+can be used as a config key.
+If not, this is documented in the option's help message.
+For example, :option:`--gcov-executable`
+can be set via the ``gcov-executable`` config key.
+But :option:`--branches` is set via ``txt-branch``.
+
+Just like command line options,
+the config keys can be specified multiple times.
+Depending on the option the last one wins or a list will be built.
+For example, :option:`--filter` can be provided multiple times::
+
+    # Only show coverage for files in src/, lib/foo, or for main.cpp files.
+    filter = src/
+    filter = lib/foo/
+    filter = *./main\.cpp
+
+Option arguments are parsed with the following precedence:
+
+-   First the config file is parsed, if any.
+-   Then, all command line arguments are added.
+-   Finally, if an option was specified
+    neither in a config file nor on the command line,
+    its documented default value is used.
+
+Therefore, it doesn't matter
+whether a value is provided in the config file or the command line.
+
+Boolean flags are treated specially.
+When their config value is “yes” they are enabled,
+as if the flag had been provided on the command line.
+When their value is “no”, they are explicitly disabled
+by assigning their default value.
+The :option:`-j` flag is special as it takes an optional argument.
+In the config file,
+``gcov-parallel = yes`` would refer to the no-argument form,
+whereas ``gcov-parallel = 4`` would provide an explicit argument.
+
+Some config file syntax is explicitly reserved for future extensions:
+Semicolon comments, INI-style sections, multi-line values, quoted values,
+variable substitutions, alternative key–value separators, …
+
+
+Exclusion Markers
+-----------------
+
+You can exclude parts of your code from coverage metrics.
+
+-   If ``GCOVR_EXCL_LINE`` appears within a line,
+    that line is ignored.
+-   If ``GCOVR_EXCL_START`` appears within a line,
+    all following lines (including the current line) are ignored
+    until a ``GCOVR_EXCL_STOP`` marker is encountered.
+
+Instead of ``GCOVR_*``,
+the markers may also start with ``GCOV_*`` or ``LCOV_*``.
+However, start and stop markers must use the same style.
+The markers are not configurable.
+
+In the excluded regions, *any* coverage is excluded.
+It is not currently possible to exclude only branch coverage in that region.
+In particular, lcov's EXCL_BR markers are not supported
+(see issue :issue:`121`).
+
+
 Acknowledgements
 ----------------
 

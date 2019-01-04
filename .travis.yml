@@ -21,14 +21,15 @@ matrix:
     env: COVERAGE_OPTS='--cov=gcovr --cov-branch'
   - python: pypy
   - python: '3.4'
-  - python: '3.5'
+  - python: '3.6'
     env: COVERAGE_OPTS='--cov=gcovr --cov-branch' BUILD_DOCS=1
   - python: pypy3.5-5.8.0
 
 install:
 - printenv
 - $CXX --version
-- pip install pytest --upgrade
+- pip install --upgrade pip  # avoid installation problems
+- pip install --upgrade pytest
 - pip install ply ordereddict pyutilib
 - test -z "$RUN_LINTER" || pip install flake8
 - test -z "$COVERAGE_OPTS" || pip install pytest-cov coverage codecov
@@ -38,7 +39,7 @@ install:
 script:
 - test -z "$RUN_LINTER" || flake8 --ignore=E501
 - test -z "$RUN_LINTER" || admin/release_checklist --no-verify-tags 4.1
-- python -m pytest -v $COVERAGE_OPTS gcovr doc/examples
+- python -m pytest -v --doctest-modules $COVERAGE_OPTS gcovr doc/examples
 - test -z "$COVERAGE_OPTS" || codecov -X gcov search
 - test -z "$BUILD_DOCS" || (cd doc; make html O=-W)
 
@@ -52,8 +53,9 @@ deploy:
     skip_existing: true
     on:
       tags: false
+      repo: gcovr/gcovr
       branch: master
-      python: '2.7'
+      python: '3.6'
   - provider: pypi
     user: whart111
     password:
@@ -61,8 +63,9 @@ deploy:
     distributions: sdist --format=gztar bdist_wheel
     on:
       tags: true
+      repo: gcovr/gcovr
       branch: master
-      python: '2.7'
+      python: '3.6'
 
 notifications:
   webhooks:

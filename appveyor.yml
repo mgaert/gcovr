@@ -7,7 +7,7 @@ environment:
 
   matrix:
     - PYTHONPATH: C:\Python27
-    - PYTHONPATH: C:\Python36-x64
+    - PYTHONPATH: C:\Python37-x64
     # TODO add more Python versions,
     # see https://www.appveyor.com/docs/build-environment/#python
 
@@ -24,6 +24,7 @@ install:
   - 'set PATH=%PYTHONPATH%;%PYTHONPATH%\Scripts;%PATH%'
   - 'python -V'
   - '%CXX% --version'
+  - 'python -m pip install --upgrade pip'
   - 'python -m pip install pytest pytest-cov'
   - 'python -m pip install ply'
   - 'python -m pip install ordereddict'
@@ -35,7 +36,7 @@ install:
 build: off
 
 test_script:
-  - 'python -m pytest -v --cov=gcovr --cov-branch gcovr doc/examples'
+  - 'python -m pytest -v --doctest-modules --cov=gcovr --cov-branch gcovr doc/examples'
   - 'codecov -X gcov search'
 
 
