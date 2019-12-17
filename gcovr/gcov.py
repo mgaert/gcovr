@@ -579,7 +579,7 @@ def process_datafile(filename, datafilename, covdata, options, toerase, tempdir)
         logger.warn(
             "GCOV produced the following errors processing {filename}:\n"
             "\t{errors}\n"
-            "\t(gcovr could not infer a working directory that resolved it.)",
+            "\t(gcovr could not infer a working directory that resolved it.)\n",
             filename=datafilename, errors="\n\t".join(errors))
 
 
@@ -645,12 +645,13 @@ def run_gcov_and_process_files(
         abs_filename, abs_datafilename, dirname, objdirname, covdata, options, logger, errors, toerase, chdir, outputdir, tempdir):
     # If the first element of cmd - the executable name - has embedded spaces
     # it probably includes extra arguments.
-    cmd = options.gcov_cmd.split(' ') + ["--branch-counts", "--branch-probabilities",
-                                         "--preserve-paths", "-o", objdirname, abs_filename]
+    cmd = options.gcov_cmd.split(' ') + [abs_filename, "--branch-counts", "--branch-probabilities",
+                                         "--preserve-paths", "--hash-filenames", "--object-directory", objdirname]
 
     # NB: Currently, we will only parse English output
     env = dict(os.environ)
     env['LC_ALL'] = 'en_US'
+    env['LANGUAGE'] = 'en_US'
 
     logger.verbose_msg(
         "Running gcov: '{cmd}' in '{cwd}'",
