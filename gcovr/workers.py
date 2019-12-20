@@ -9,17 +9,14 @@
 from threading import Thread, Condition, RLock
 from contextlib import contextmanager
 
-import sys
-if sys.version_info[0] >= 3:
-    from queue import Queue, Empty
-else:
-    from Queue import Queue, Empty
+from queue import Queue, Empty
 
 
 class LockedDirectories(object):
     """
     Class that keeps a list of locked directories
     """
+
     def __init__(self):
         self.dirs = set()
         self.cv = Condition()
@@ -87,7 +84,8 @@ class Workers(object):
         self.lock = RLock()
         self.exceptions = []
         self.contexts = [context() for _ in range(0, number)]
-        self.workers = [Thread(target=worker, args=(self.q, c, self)) for c in self.contexts]
+        self.workers = [Thread(target=worker, args=(self.q, c, self))
+                        for c in self.contexts]
         for w in self.workers:
             w.start()
 

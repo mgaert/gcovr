@@ -2,190 +2,104 @@
 
 # This file is part of gcovr <http://gcovr.com/>.
 #
-# Copyright 2013-2018 the gcovr authors
+# Copyright 2013-2019 the gcovr authors
 # Copyright 2013 Sandia Corporation
 # This software is distributed under the BSD license.
 
+from argparse import ArgumentTypeError
 import os
 import re
 import sys
-
-# iZip is only available in 2.x
-try:
-    from itertools import izip as zip
-except ImportError:
-    pass
+from contextlib import contextmanager
 
 
-def resolve_symlinks(orig_path):
-    """
-    Return the normalized absolute path name with all symbolic links resolved
-    """
-    return os.path.realpath(orig_path)
-    # WEH - why doesn't os.path.realpath() suffice here?
-    #
-    drive, tmp = os.path.splitdrive(os.path.abspath(orig_path))
-    if not drive:
-        drive = os.path.sep
-    parts = tmp.split(os.path.sep)
-    actual_path = [drive]
-    while parts:
-        actual_path.append(parts.pop(0))
-        if not os.path.islink(os.path.join(*actual_path)):
-            continue
-        actual_path[-1] = os.readlink(os.path.join(*actual_path))
-        tmp_drive, tmp_path = os.path.splitdrive(
-            resolve_symlinks(os.path.join(*actual_path)))
-        if tmp_drive:
-            drive = tmp_drive
-        actual_path = [drive] + tmp_path.split(os.path.sep)
-    return os.path.join(*actual_path)
-
-
-#
-# Class that creates path aliases
-#
-class PathAliaser(object):
-
+class LoopChecker(object):
     def __init__(self):
-        self.aliases = {}
-        self.master_targets = set()
-        self.preferred_name = {}
+        self._seen = set()
 
-    def path_startswith(self, path, base):
-        return path.startswith(base) and (
-            len(base) == len(path) or path[len(base)] == os.path.sep)
+    def already_visited(self, path):
+        st = os.stat(path)
+        key = (st.st_dev, st.st_ino)
+        if key in self._seen:
+            return True
 
-    def master_path(self, path):
-        match_found = False
-        while True:
-            for base, alias in self.aliases.items():
-                if self.path_startswith(path, base):
-                    path = alias + path[len(base):]
-                    match_found = True
-                    break
-            for master_base in self.master_targets:
-                if self.path_startswith(path, master_base):
-                    return path, master_base, True
-            if match_found:
-                sys.stderr.write(
-                    "(ERROR) violating fundamental assumption while walking "
-                    "directory tree.\n\tPlease report this to the gcovr "
-                    "developers.\n")
-            return path, None, match_found
-
-    def unalias_path(self, path):
-        path = resolve_symlinks(path)
-        path, master_base, known_path = self.master_path(path)
-        if not known_path:
-            return path
-        # Try and resolve the preferred name for this location
-        if master_base in self.preferred_name:
-            return self.preferred_name[master_base] + path[len(master_base):]
-        return path
-
-    def add_master_target(self, master):
-        self.master_targets.add(master)
-
-    def add_alias(self, target, master):
-        self.aliases[target] = master
-
-    def set_preferred(self, master, preferred):
-        self.preferred_name[master] = preferred
+        self._seen.add(key)
+        return False
 
 
-aliases = PathAliaser()
-
-
-# This is UGLY.  Here's why: UNIX resolves symbolic links by walking the
-# entire directory structure.  What that means is that relative links
-# are always relative to the actual directory inode, and not the
-# "virtual" path that the user might have traversed (over symlinks) on
-# the way to that directory.  Here's the canonical example:
-#
-#   a / b / c / testfile
-#   a / d / e --> ../../a/b
-#   m / n --> /a
-#   x / y / z --> /m/n/d
-#
-# If we start in "y", we will see the following directory structure:
-#   y
-#   |-- z
-#       |-- e
-#           |-- c
-#               |-- testfile
-#
-# The problem is that using a simple traversal based on the Python
-# documentation:
-#
-#    (os.path.join(os.path.dirname(path), os.readlink(result)))
-#
-# will not work: we will see a link to /m/n/d from /x/y, but completely
-# miss the fact that n is itself a link.  If we then naively attempt to
-# apply the "c" relative link, we get an intermediate path that looks
-# like "/m/n/d/e/../../a/b", which would get normalized to "/m/n/a/b"; a
-# nonexistant path.  The solution is that we need to walk the original
-# path, along with the full path of all links 1 directory at a time and
-# check for embedded symlinks.
-#
-#
-# NB:  Users have complained that this code causes a performance issue.
-# I have replaced this logic with os.walk(), which works for Python >= 2.6
-#
-def link_walker(path, exclude_dirs):
-    for root, dirs, files in os.walk(os.path.abspath(path),topdown=True, onerror=None, followlinks=True):
-        for exc in exclude_dirs:
-            for d in dirs:
-                m = exc.match(d)
-                if m is not None:
-                    dirs[:] = [d for d in dirs if d is not m.group()]
-        yield (os.path.abspath(os.path.realpath(root)), dirs, files)
-
-
-def search_file(expr, path, exclude_dirs):
+def search_file(predicate, path, exclude_dirs):
     """
-    Given a search path, recursively descend to find files that match a
-    regular expression.
+    Given a search path, recursively descend to find files that satisfy a
+    predicate.
     """
-    ans = []
-    pattern = re.compile(expr)
+
     if path is None or path == ".":
         path = os.getcwd()
     elif not os.path.exists(path):
         raise IOError("Unknown directory '" + path + "'")
-    for root, dirs, files in link_walker(path, exclude_dirs):
+
+    loop_checker = LoopChecker()
+    for root, dirs, files in os.walk(os.path.abspath(path), followlinks=True):
+        # Check if we've already visited 'root' through the magic of symlinks
+        if loop_checker.already_visited(root):
+            dirs[:] = []
+            continue
+
+        dirs[:] = [d for d in dirs
+                   if not any(exc.match(os.path.join(root, d))
+                              for exc in exclude_dirs)]
+        root = os.path.realpath(root)
+
         for name in files:
-            if pattern.match(name):
-                name = os.path.join(root, name)
-                if os.path.islink(name):
-                    ans.append(os.path.abspath(os.readlink(name)))
-                else:
-                    ans.append(os.path.abspath(name))
-    return ans
+            if predicate(name):
+                yield os.path.realpath(os.path.join(root, name))
 
 
 def commonpath(files):
-
+    r"""Find the common prefix of all files.
+    This differs from the standard library os.path.commonpath():
+     - We first normalize all paths to a realpath.
+     - We return a path with a trailing path separator.
+    No common path exists under the following circumstances:
+     - on Windows when the paths have different drives.
+       E.g.: commonpath([r'C:\foo', r'D:\foo']) == ''
+     - when the `files` are empty.
+    Arguments:
+        files (list): the input paths, may be relative or absolute.
+    Returns: str
+        The common prefix directory as a relative path.
+        Always ends with a path separator.
+        Returns the empty string if no common path exists.
+    """
+    if not files:
+        return ''
     if len(files) == 1:
-        return os.path.join(os.path.relpath(os.path.split(files[0])[0]), '')
-
-    common_path = os.path.realpath(files[0])
-    common_dirs = common_path.split(os.path.sep)
-
-    for f in files[1:]:
-        path = os.path.realpath(f)
-        dirs = path.split(os.path.sep)
-        common = []
-        for a, b in zip(dirs, common_dirs):
-            if a == b:
-                common.append(a)
-            elif common:
-                common_dirs = common
+        prefix_path = os.path.dirname(os.path.realpath(files[0]))
+    else:
+        split_paths = [os.path.realpath(path).split(os.path.sep)
+                       for path in files]
+        # We only have to compare the lexicographically minimum and maximum
+        # paths to find the common prefix of all, e.g.:
+        #   /a/b/c/d  <- min
+        #   /a/b/d
+        #   /a/c/a    <- max
+        #
+        # compare:
+        # https://github.com/python/cpython/blob/3.6/Lib/posixpath.py#L487
+        min_path = min(split_paths)
+        max_path = max(split_paths)
+        common = min_path  # assume that min_path is a prefix of max_path
+        for i in range(min(len(min_path), len(max_path))):
+            if min_path[i] != max_path[i]:
+                common = min_path[:i]  # disproven, slice for actual prefix
                 break
-            else:
-                return ''
 
-    return os.path.join(os.path.relpath(os.path.sep.join(common_dirs)), '')
+        prefix_path = os.path.sep.join(common)
+
+    # make the path relative and add a trailing slash
+    if prefix_path:
+        prefix_path = os.path.join(os.path.relpath(prefix_path), '')
+    return prefix_path
 
 
 #
@@ -200,13 +114,13 @@ def get_global_stats(covdata):
     keys = list(covdata.keys())
 
     for key in keys:
-        (t, n, txt) = covdata[key].coverage(show_branch=False)
-        lines_total += t
-        lines_covered += n
+        (total, covered, _) = covdata[key].line_coverage()
+        lines_total += total
+        lines_covered += covered
 
-        (t, n, txt) = covdata[key].coverage(show_branch=True)
-        branches_total += t
-        branches_covered += n
+        (total, covered, _) = covdata[key].branch_coverage()
+        branches_total += total
+        branches_covered += covered
 
     percent = calculate_coverage(lines_covered, lines_total)
     percent_branches = calculate_coverage(branches_covered, branches_total)
@@ -219,22 +133,39 @@ def calculate_coverage(covered, total, nan_value=0.0):
     return nan_value if total == 0 else round(100.0 * covered / total, 1)
 
 
-def build_filter(logger, regex):
-    # Try to detect unintended backslashes and warn.
-    # Later, the regex engine may or may not raise a syntax error.
-    # An unintended backslash is a literal backslash r"\\",
-    # or a regex escape that doesn't exist.
-    (suggestion, bs_count) = re.subn(
-        r'\\\\|\\(?=[^\WabfnrtuUvx0-9AbBdDsSwWZ])', '/', regex)
-    if bs_count:
-        logger.warn("filters must use forward slashes as path separators")
-        logger.warn("your filter : {}", regex)
-        logger.warn("did you mean: {}", suggestion)
+class FilterOption(object):
+    def __init__(self, regex, path_context=None):
+        self.regex = regex
+        self.path_context = path_context
 
-    if os.path.isabs(regex):
-        return AbsoluteFilter(regex)
-    else:
-        return RelativeFilter(os.getcwd(), regex)
+    def build_filter(self, logger):
+        # Try to detect unintended backslashes and warn.
+        # Later, the regex engine may or may not raise a syntax error.
+        # An unintended backslash is a literal backslash r"\\",
+        # or a regex escape that doesn't exist.
+        (suggestion, bs_count) = re.subn(
+            r'\\\\|\\(?=[^\WabfnrtuUvx0-9AbBdDsSwWZ])', '/', self.regex)
+        if bs_count:
+            logger.warn("filters must use forward slashes as path separators")
+            logger.warn("your filter : {}", self.regex)
+            logger.warn("did you mean: {}", suggestion)
+
+        if os.path.isabs(self.regex):
+            return AbsoluteFilter(self.regex)
+        else:
+            path_context = (self.path_context if self.path_context is not None
+                            else os.getcwd())
+            return RelativeFilter(path_context, self.regex)
+
+
+class NonEmptyFilterOption(FilterOption):
+    def __init__(self, regex, path_context=None):
+        if not regex:
+            raise ArgumentTypeError("filter cannot be empty")
+        super(NonEmptyFilterOption, self).__init__(regex, path_context)
+
+
+FilterOption.NonEmpty = NonEmptyFilterOption
 
 
 class Filter(object):
@@ -281,9 +212,14 @@ class AlwaysMatchFilter(Filter):
 
 class DirectoryPrefixFilter(Filter):
     def __init__(self, directory):
-        os_independent_dir = directory.replace(os.path.sep, '/')
+        abspath = os.path.realpath(directory)
+        os_independent_dir = abspath.replace(os.path.sep, '/')
         pattern = re.escape(os_independent_dir + '/')
         super(DirectoryPrefixFilter, self).__init__(pattern)
+
+    def match(self, path):
+        normpath = os.path.normpath(path)
+        return super(DirectoryPrefixFilter, self).match(normpath)
 
 
 class Logger(object):
@@ -338,12 +274,16 @@ def sort_coverage(covdata, show_branch,
     returns: the sorted keys
     """
     def num_uncovered_key(key):
-        (total, covered, _) = covdata[key].coverage(show_branch)
+        cov = covdata[key]
+        (total, covered, _) = \
+            cov.branch_coverage() if show_branch else cov.line_coverage()
         uncovered = total - covered
         return uncovered
 
     def percent_uncovered_key(key):
-        (total, covered, _) = covdata[key].coverage(show_branch)
+        cov = covdata[key]
+        (total, covered, _) = \
+            cov.branch_coverage() if show_branch else cov.line_coverage()
         if covered:
             return -1.0 * covered / total
         elif total:
@@ -359,3 +299,41 @@ def sort_coverage(covdata, show_branch,
         key_fn = None  # default key, sort alphabetically
 
     return sorted(covdata, key=key_fn)
+
+
+@contextmanager
+def open_binary_for_writing(filename=None):
+    """Context manager to open and close a file for binary writing.
+    Stdout is used if `filename` is None or '-'.
+    """
+    if filename and filename != '-':
+        # files in write binary mode for UTF-8
+        fh = open(filename, 'wb')
+        close = True
+    else:
+        fh = sys.stdout.buffer
+        close = False
+
+    try:
+        yield fh
+    finally:
+        if close:
+            fh.close()
+
+
+def presentable_filename(filename, root_filter):
+    # type: (str, re.Regex) -> str
+    """mangle a filename so that it is suitable for a report"""
+
+    normalized = root_filter.sub('', filename)
+    if filename.endswith(normalized):
+        # remove any slashes between the removed prefix and the normalized name
+        if filename != normalized:
+            while normalized.startswith(os.path.sep):
+                normalized = normalized[len(os.path.sep):]
+    else:
+        # Do no truncation if the filter does not start matching
+        # at the beginning of the string
+        normalized = filename
+
+    return normalized.replace('\\', '/')

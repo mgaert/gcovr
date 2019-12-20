@@ -26,36 +26,16 @@ version = run_path('./gcovr/version.py')['__version__']
 
 setup(name='gcovr',
       version=version,
-      maintainer='Michael Gaertner',
-      maintainer_email='michael.gaertner@leuze.com',
-      url='',
-      license='BSD',
       platforms=["any"],
-      python_requires='>=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*',
-      description='A Python script for summarizing gcov data.',
-      long_description=read('README.rst'),
-      classifiers=[
-          'Development Status :: 4 - Beta',
-          'Intended Audience :: End Users/Desktop',
-          'Intended Audience :: Science/Research',
-          'License :: OSI Approved :: BSD License',
-          'Natural Language :: English',
-          'Operating System :: Microsoft :: Windows',
-          'Operating System :: Unix',
-          'Programming Language :: Python :: 3.4',
-          'Programming Language :: Python :: 3.5',
-          'Programming Language :: Python :: 3.7',
-          'Programming Language :: Unix Shell',
-          'Topic :: Software Development :: Libraries :: Python Modules',
-      ],
+      python_requires='>=3.4',
       packages=['gcovr'],
       install_requires=[
           'jinja2',
+          'lxml',
       ],
       package_data={
           'gcovr': ['templates/*.css', 'templates/*.html'],
       },
-      keywords=['utility'],
       entry_points={
           'console_scripts': [
               'gcovr=gcovr.__main__:main',

@@ -8,17 +8,19 @@
 
 import sys
 
-from .utils import calculate_coverage, sort_coverage
+from .utils import calculate_coverage, sort_coverage, presentable_filename
 
 
-#
-# Produce the classic gcovr text report
-#
-def print_text_report(covdata, options):
-    if options.output:
-        OUTPUT = open(options.output, 'w')
+def print_text_report(covdata, output_file, options):
+    """produce the classic gcovr text report"""
+    if output_file:
+        with open(output_file, 'w') as fh:
+            _real_print_text_report(covdata, fh, options)
     else:
-        OUTPUT = sys.stdout
+        _real_print_text_report(covdata, sys.stdout, options)
+
+
+def _real_print_text_report(covdata, OUTPUT, options):
     total_lines = 0
     total_covered = 0
 
@@ -43,26 +45,22 @@ def print_text_report(covdata, options):
         by_percent_uncovered=options.sort_percent)
 
     def _summarize_file_coverage(coverage):
-        tmp = options.root_filter.sub('', coverage.fname)
-        if not coverage.fname.endswith(tmp):
-            # Do no truncation if the filter does not start matching at
-            # the beginning of the string
-            tmp = coverage.fname
-        tmp = tmp.replace('\\', '/').ljust(40)
-        if len(tmp) > 40:
-            tmp = tmp + "\n" + " " * 40
+        filename = presentable_filename(
+            coverage.filename, root_filter=options.root_filter)
+        filename = filename.ljust(40)
+        if len(filename) > 40:
+            filename = filename + "\n" + " " * 40
 
-        (total, cover, percent) = coverage.coverage(options.show_branch)
-        uncovered_lines = coverage.uncovered_str(
-            exceptional=False, show_branch=options.show_branch)
-        if not options.show_branch:
-            t = coverage.uncovered_str(
-                exceptional=True, show_branch=options.show_branch)
-            if len(t):
-                uncovered_lines += " [* " + t + "]"
+        if options.show_branch:
+            total, cover, percent = coverage.branch_coverage()
+            uncovered_lines = coverage.uncovered_branches_str()
+        else:
+            total, cover, percent = coverage.line_coverage()
+            uncovered_lines = coverage.uncovered_lines_str()
+        percent = '--' if percent is None else str(int(percent))
         return (total, cover,
-                tmp + str(total).rjust(8) + str(cover).rjust(8) +
-                percent.rjust(6) + "%   " + uncovered_lines)
+                filename + str(total).rjust(8) + str(cover).rjust(8)
+                + percent.rjust(6) + "%   " + uncovered_lines)
 
     for key in keys:
         (t, n, txt) = _summarize_file_coverage(covdata[key])
@@ -75,11 +73,7 @@ def print_text_report(covdata, options):
     percent = calculate_coverage(total_covered, total_lines, nan_value=None)
     percent = "--" if percent is None else str(int(percent))
     OUTPUT.write(
-        "TOTAL".ljust(40) + str(total_lines).rjust(8) +
-        str(total_covered).rjust(8) + str(percent).rjust(6) + "%" + '\n'
+        "TOTAL".ljust(40) + str(total_lines).rjust(8)
+        + str(total_covered).rjust(8) + str(percent).rjust(6) + "%" + '\n'
     )
     OUTPUT.write("-" * 78 + '\n')
-
-    # Close logfile
-    if options.output:
-        OUTPUT.close()
