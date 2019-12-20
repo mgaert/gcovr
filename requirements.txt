@@ -1,3 +1,7 @@
-pyutilib
-pytest
+cmake
 flake8
+jinja2
+lxml
+pytest
+pytest-cov
+pyutilib

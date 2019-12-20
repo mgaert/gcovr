@@ -52,14 +52,14 @@ def test_empty_root(capsys):
 def test_empty_exclude(capsys):
     c = capture(capsys, ['--exclude', ''])
     assert c.out == ''
-    assert 'value should not be empty' in c.err
+    assert 'filter cannot be empty' in c.err
     assert c.exception.code != 0
 
 
 def test_empty_exclude_directories(capsys):
     c = capture(capsys, ['--exclude-directories', ''])
     assert c.out == ''
-    assert 'value should not be empty' in c.err
+    assert 'filter cannot be empty' in c.err
     assert c.exception.code != 0
 
 
@@ -101,6 +101,7 @@ def test_line_threshold_100_1(capsys):
 
 
 def test_filter_backslashes_are_detected(capsys):
+    # gcov-exclude all to prevent any coverage data from being found
     c = capture(
         capsys,
         args=['--filter', r'C:\\foo\moo', '--gcov-exclude', ''],
@@ -145,3 +146,10 @@ def test_html_medium_threshold_gt_html_high_threshold(capsys):
     assert c.out == ''
     assert 'value of --html-medium-threshold=60.0 should be\nlower than or equal to the value of --html-high-threshold=50.0.' in c.err
     assert c.exception.code != 0
+
+
+def test_multiple_output_formats_to_stdout(capsys):
+    c = capture(capsys, ['--xml', '--html', '--sonarqube'])
+    assert 'HTML output skipped' in c.err
+    assert 'Sonarqube output skipped' in c.err
+    assert c.exception.code == 0

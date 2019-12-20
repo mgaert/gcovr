@@ -67,6 +67,9 @@ We compile ``example1.cpp`` with the GCC compiler as follows:
     :start-after: #BEGIN compile
     :end-before: #END compile
 
+(If you are using CMake,
+also see :ref:`oos cmake`.)
+
 Note that we compile this program without optimization, because
 optimization may combine lines of code and otherwise change the
 flow of execution in the program.  Additionally, we compile with
@@ -137,8 +140,8 @@ branches taken and the branches that were not completely covered:
     :literal:
 
 
-XML Output
-~~~~~~~~~~
+Cobertura XML Output
+~~~~~~~~~~~~~~~~~~~~
 
 The default output format for ``gcovr`` is to generate a tabular
 summary in plain text.  The ``gcovr`` command can also generate an
@@ -160,6 +163,7 @@ format suitable for import and display within the
 `Jenkins <http://www.jenkins-ci.org/>`__ and `Hudson <http://www.hudson-ci.org/>`__
 continuous integration servers using the
 `Cobertura Plugin <https://wiki.jenkins-ci.org/display/JENKINS/Cobertura+Plugin>`__.
+Gcovr also supports a `Sonarqube XML Output`_
 
 The ``--xml`` option generates a denser XML output, and the ``--xml-pretty``
 option generates an indented XML output that is easier to read.
@@ -214,6 +218,126 @@ Note that the ``--html-details`` option can only be used with the
 specifies the output file ``coverage.html``, then the web pages
 generated for each file will have names of the form
 ``coverage.<filename>.html``.
+
+.. _sonarqube_xml_output:
+
+Sonarqube XML Output
+~~~~~~~~~~~~~~~~~~~~
+
+If you are using Sonarqube, you can get a coverage report
+in a suitable XML format via the :option:`gcovr --sonarqube` option::
+
+    gcovr --sonarqube coverage.xml
+
+The Sonarqube XML format is documented at
+`<https://docs.sonarqube.org/latest/analysis/generic-test/>`_.
+
+.. _json_output:
+
+JSON Output
+~~~~~~~~~~~
+
+The ``gcovr`` command can also generate a JSON output using
+the ``--json`` and ``--json-pretty`` options::
+
+    gcovr --json coverage.json
+
+The ``--json-pretty`` option generates an indented JSON output
+that is easier to read.
+
+Structure of file is based on gcov JSON intermediate format
+with additional key names specific to gcovr.
+
+Structure of the JSON is following:
+::
+
+    {
+        "gcovr/format_version": gcovr_json_version
+        "files": [file]
+    }
+
+*gcovr_json_version*: version of gcovr JSON format
+
+Each *file* has the following form:
+::
+
+    {
+        "file": file
+        "lines": [line]
+    }
+
+*file*: path to source code file, relative to gcovr
+root directory.
+
+Each *line* has the following form:
+::
+
+    {
+        "branches": [branch]
+        "count": count
+        "line_number": line_number
+        "gcovr/noncode": gcovr_noncode
+    }
+
+*gcovr_noncode*: if True coverage info on this line should be ignored
+
+Each *branch* has the following form:
+::
+
+    {
+      "count": count
+      "fallthrough": fallthrough
+      "throw": throw
+    }
+
+*file*, *line* and *branch* have the structure defined in gcov
+intermediate format. This format is documented at
+`<https://gcc.gnu.org/onlinedocs/gcc/Invoking-Gcov.html#Invoking-Gcov>`_.
+
+Multiple JSON files can be merged into the coverage data
+with sum of lines and branches execution
+
+.. _multiple output formats:
+
+Multiple Output Formats
+~~~~~~~~~~~~~~~~~~~~~~~
+
+You can write multiple report formats with one gcovr invocation
+by passing the output filename directly to the report format flag.
+If no filename is specified for the format,
+the value from :option:`-o/--output<gcovr --output>` is used by default,
+which itself defaults to stdout.
+
+The following report format flags can take an optional output file name:
+
+- :option:`gcovr --xml`
+- :option:`gcovr --html`
+- :option:`gcovr --html-details`
+- :option:`gcovr --sonarqube`
+- :option:`gcovr --json`
+
+Note that --html-details overrides any value of --html if it is present.
+
+.. _combining_tracefiles:
+
+Combining Tracefiles
+~~~~~~~~~~~~~~~~~~~~
+
+You can merge coverage data from multiple runs with :option:`gcovr --add-tracefile`.
+
+For each run, generate :ref:`JSON output <json_output>`:
+
+.. code-block:: bash
+
+    ...  # compile and run first test case
+    gcovr ... --json run-1.json
+    ...  # compile and run second test case
+    gcovr ... --json run-2.json
+
+
+Next, merge the json files and generate the desired report::
+
+    gcovr --add-tracefile run-1.json --add-tracefile run-2.json --html-details coverage.html
 
 
 The gcovr Command
@@ -368,6 +492,8 @@ or a relative path to the real path::
     (see our :doc:`contributing guide <contributing>`).
 
 
+.. _configuration:
+
 Configuration Files
 -------------------
 
@@ -413,6 +539,9 @@ For example, :option:`--filter` can be provided multiple times::
     filter = lib/foo/
     filter = *./main\.cpp
 
+Note that relative filters specified in config files will be interpreted
+relative to the location of the config file itself.
+
 Option arguments are parsed with the following precedence:
 
 -   First the config file is parsed, if any.
@@ -438,6 +567,8 @@ Some config file syntax is explicitly reserved for future extensions:
 Semicolon comments, INI-style sections, multi-line values, quoted values,
 variable substitutions, alternative key–value separators, …
 
+
+.. _exclusion markers:
 
 Exclusion Markers
 -----------------

@@ -2,32 +2,29 @@
 
 # This file is part of gcovr <http://gcovr.com/>.
 #
-# Copyright 2013-2018 the gcovr authors
+# Copyright 2013-2019 the gcovr authors
 # Copyright 2013 Sandia Corporation
 # This software is distributed under the BSD license.
 
+from argparse import ArgumentTypeError
 import os
-import platform
 import re
 import sys
+from contextlib import contextmanager
 
-if not (platform.system() == 'Windows' and sys.version_info[0] == 2):
-    class LoopChecker(object):
-        def __init__(self):
-            self._seen = set()
 
-        def already_visited(self, path):
-            st = os.stat(path)
-            key = (st.st_dev, st.st_ino)
-            if key in self._seen:
-                return True
+class LoopChecker(object):
+    def __init__(self):
+        self._seen = set()
 
-            self._seen.add(key)
-            return False
-else:
-    class LoopChecker(object):
-        def already_visited(self, path):
-            return False
+    def already_visited(self, path):
+        st = os.stat(path)
+        key = (st.st_dev, st.st_ino)
+        if key in self._seen:
+            return True
+
+        self._seen.add(key)
+        return False
 
 
 def search_file(predicate, path, exclude_dirs):
@@ -139,22 +136,39 @@ def calculate_coverage(covered, total, nan_value=0.0):
     return nan_value if total == 0 else round(100.0 * covered / total, 1)
 
 
-def build_filter(logger, regex):
-    # Try to detect unintended backslashes and warn.
-    # Later, the regex engine may or may not raise a syntax error.
-    # An unintended backslash is a literal backslash r"\\",
-    # or a regex escape that doesn't exist.
-    (suggestion, bs_count) = re.subn(
-        r'\\\\|\\(?=[^\WabfnrtuUvx0-9AbBdDsSwWZ])', '/', regex)
-    if bs_count:
-        logger.warn("filters must use forward slashes as path separators")
-        logger.warn("your filter : {}", regex)
-        logger.warn("did you mean: {}", suggestion)
+class FilterOption(object):
+    def __init__(self, regex, path_context=None):
+        self.regex = regex
+        self.path_context = path_context
 
-    if os.path.isabs(regex):
-        return AbsoluteFilter(regex)
-    else:
-        return RelativeFilter(os.getcwd(), regex)
+    def build_filter(self, logger):
+        # Try to detect unintended backslashes and warn.
+        # Later, the regex engine may or may not raise a syntax error.
+        # An unintended backslash is a literal backslash r"\\",
+        # or a regex escape that doesn't exist.
+        (suggestion, bs_count) = re.subn(
+            r'\\\\|\\(?=[^\WabfnrtuUvx0-9AbBdDsSwWZ])', '/', self.regex)
+        if bs_count:
+            logger.warn("filters must use forward slashes as path separators")
+            logger.warn("your filter : {}", self.regex)
+            logger.warn("did you mean: {}", suggestion)
+
+        if os.path.isabs(self.regex):
+            return AbsoluteFilter(self.regex)
+        else:
+            path_context = (self.path_context if self.path_context is not None
+                            else os.getcwd())
+            return RelativeFilter(path_context, self.regex)
+
+
+class NonEmptyFilterOption(FilterOption):
+    def __init__(self, regex, path_context=None):
+        if not regex:
+            raise ArgumentTypeError("filter cannot be empty")
+        super(NonEmptyFilterOption, self).__init__(regex, path_context)
+
+
+FilterOption.NonEmpty = NonEmptyFilterOption
 
 
 class Filter(object):
@@ -201,9 +215,14 @@ class AlwaysMatchFilter(Filter):
 
 class DirectoryPrefixFilter(Filter):
     def __init__(self, directory):
-        os_independent_dir = directory.replace(os.path.sep, '/')
+        abspath = os.path.realpath(directory)
+        os_independent_dir = abspath.replace(os.path.sep, '/')
         pattern = re.escape(os_independent_dir + '/')
         super(DirectoryPrefixFilter, self).__init__(pattern)
+
+    def match(self, path):
+        normpath = os.path.normpath(path)
+        return super(DirectoryPrefixFilter, self).match(normpath)
 
 
 class Logger(object):
@@ -283,3 +302,42 @@ def sort_coverage(covdata, show_branch,
         key_fn = None  # default key, sort alphabetically
 
     return sorted(covdata, key=key_fn)
+
+
+@contextmanager
+def open_binary_for_writing(filename=None):
+    """Context manager to open and close a file for binary writing.
+
+    Stdout is used if `filename` is None or '-'.
+    """
+    if filename and filename != '-':
+        # files in write binary mode for UTF-8
+        fh = open(filename, 'wb')
+        close = True
+    else:
+        fh = sys.stdout.buffer
+        close = False
+
+    try:
+        yield fh
+    finally:
+        if close:
+            fh.close()
+
+
+def presentable_filename(filename, root_filter):
+    # type: (str, re.Regex) -> str
+    """mangle a filename so that it is suitable for a report"""
+
+    normalized = root_filter.sub('', filename)
+    if filename.endswith(normalized):
+        # remove any slashes between the removed prefix and the normalized name
+        if filename != normalized:
+            while normalized.startswith(os.path.sep):
+                normalized = normalized[len(os.path.sep):]
+    else:
+        # Do no truncation if the filter does not start matching
+        # at the beginning of the string
+        normalized = filename
+
+    return normalized.replace('\\', '/')

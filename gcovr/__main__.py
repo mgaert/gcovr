@@ -41,10 +41,11 @@ from shutil import rmtree
 
 from .configuration import (
     argument_parser_setup, merge_options_and_set_defaults,
-    parse_config_file, parse_config_into_dict)
+    parse_config_file, parse_config_into_dict, OutputOrDefault)
 from .gcov import (find_existing_gcov_files, find_datafiles,
                    process_existing_gcov_file, process_datafile)
-from .utils import (get_global_stats, build_filter, AlwaysMatchFilter,
+from .json_generator import (gcovr_json_files_to_coverage)
+from .utils import (get_global_stats, AlwaysMatchFilter,
                     DirectoryPrefixFilter, Logger)
 from .version import __version__
 from .workers import Workers
@@ -54,6 +55,8 @@ from .cobertura_xml_generator import print_xml_report
 from .html_generator import print_html_report
 from .txt_generator import print_text_report
 from .summary_generator import print_summary
+from .sonarqube_generator import print_sonarqube_report
+from .json_generator import print_json_report
 
 
 #
@@ -212,17 +215,16 @@ def main(args=None):
 
     if options.exclude_dirs is not None:
         options.exclude_dirs = [
-            build_filter(logger, f) for f in options.exclude_dirs]
+            f.build_filter(logger) for f in options.exclude_dirs]
 
-    options.exclude = [build_filter(logger, f) for f in options.exclude]
-    options.filter = [build_filter(logger, f) for f in options.filter]
+    options.exclude = [f.build_filter(logger) for f in options.exclude]
+    options.filter = [f.build_filter(logger) for f in options.filter]
     if not options.filter:
         options.filter = [DirectoryPrefixFilter(options.root_dir)]
 
     options.gcov_exclude = [
-        build_filter(logger, f) for f in options.gcov_exclude]
-    options.gcov_filter = [
-        build_filter(logger, f) for f in options.gcov_filter]
+        f.build_filter(logger) for f in options.gcov_exclude]
+    options.gcov_filter = [f.build_filter(logger) for f in options.gcov_filter]
     if not options.gcov_filter:
         options.gcov_filter = [AlwaysMatchFilter()]
 
@@ -239,6 +241,38 @@ def main(args=None):
         for f in filters:
             logger.verbose_msg('- {}', f)
 
+    covdata = dict()
+    if options.add_tracefile:
+        collect_coverage_from_tracefiles(covdata, options, logger)
+    else:
+        collect_coverage_from_gcov(covdata, options, logger)
+
+    logger.verbose_msg("Gathered coveraged data for {} files", len(covdata))
+
+    # Print reports
+    print_reports(covdata, options, logger)
+
+    if options.fail_under_line > 0.0 or options.fail_under_branch > 0.0:
+        fail_under(covdata, options.fail_under_line, options.fail_under_branch)
+
+
+def collect_coverage_from_tracefiles(covdata, options, logger):
+    datafiles = set()
+
+    for trace_file in options.add_tracefile:
+        if not os.path.exists(normpath(trace_file)):
+            logger.error(
+                "Bad --add-tracefile option.\n"
+                "\tThe specified file does not exist.")
+            sys.exit(1)
+        datafiles.add(trace_file)
+    options.root_dir = os.path.abspath(options.root)
+    gcovr_json_files_to_coverage(datafiles, covdata, options)
+
+
+def collect_coverage_from_gcov(covdata, options, logger):
+    datafiles = set()
+
     find_files = find_datafiles
     process_file = process_datafile
     if options.gcov_files:
@@ -252,7 +286,6 @@ def main(args=None):
         if options.objdir is not None:
             options.search_paths.append(options.objdir)
 
-    datafiles = set()
     for search_path in options.search_paths:
         datafiles.update(find_files(search_path, logger, options.exclude_dirs))
 
@@ -267,7 +300,6 @@ def main(args=None):
             pool.add(process_file, file_)
         contexts = pool.wait()
 
-    covdata = dict()
     toerase = set()
     for context in contexts:
         for fname, cov in context['covdata'].items():
@@ -281,21 +313,69 @@ def main(args=None):
         if os.path.exists(filepath):
             os.remove(filepath)
 
-    logger.verbose_msg("Gathered coveraged data for {} files", len(covdata))
 
-    # Print report
-    if options.xml or options.prettyxml:
-        print_xml_report(covdata, options)
-    elif options.html or options.html_details:
-        print_html_report(covdata, options)
-    else:
-        print_text_report(covdata, options)
+def print_reports(covdata, options, logger):
+    reports_were_written = False
+    default_output = OutputOrDefault(options.output)
+
+    generators = []
+
+    generators.append((
+        lambda: options.xml or options.prettyxml,
+        [options.xml],
+        print_xml_report,
+        lambda: logger.warn(
+            "Cobertura output skipped - "
+            "consider providing an output file with `--xml=OUTPUT`.")))
+
+    generators.append((
+        lambda: options.html or options.html_details,
+        [options.html, options.html_details],
+        print_html_report,
+        lambda: logger.warn(
+            "HTML output skipped - "
+            "consider providing an output file with `--html=OUTPUT`.")))
+
+    generators.append((
+        lambda: options.sonarqube,
+        [options.sonarqube],
+        print_sonarqube_report,
+        lambda: logger.warn(
+            "Sonarqube output skipped - "
+            "consider providing output file with `--sonarqube=OUTPUT`.")))
+
+    generators.append((
+        lambda: options.json or options.prettyjson,
+        [options.json],
+        print_json_report,
+        lambda: logger.warn(
+            "JSON output skipped - "
+            "consider providing output file with `--json=OUTPUT`.")))
+
+    generators.append((
+        lambda: not reports_were_written,
+        [],
+        print_text_report,
+        lambda: None))
+
+    for should_run, output_choices, generator, on_no_output in generators:
+        if should_run():
+            output = OutputOrDefault.choose(output_choices,
+                                            default=default_output)
+            if output is default_output:
+                default_output = None
+            if output is not None:
+                generator(covdata, output.value, options)
+                reports_were_written = True
+            else:
+                on_no_output()
+
+    if default_output is not None and default_output.value is not None:
+        logger.warn("--output={!r} option was provided but not used.",
+                    default_output.value)
 
     if options.print_summary:
         print_summary(covdata)
-
-    if options.fail_under_line > 0.0 or options.fail_under_branch > 0.0:
-        fail_under(covdata, options.fail_under_line, options.fail_under_branch)
 
 
 if __name__ == '__main__':

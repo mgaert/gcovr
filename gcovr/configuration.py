@@ -6,14 +6,17 @@
 # passed into gcovr.
 #
 #
-# Copyright 2013-2018 the gcovr authors
+# Copyright 2013-2019 the gcovr authors
 # Copyright 2013 Sandia Corporation
 # This software is distributed under the BSD license.
 from argparse import ArgumentTypeError, SUPPRESS
 from locale import getpreferredencoding
 from multiprocessing import cpu_count
+from typing import Iterable, Any
 import os
 import re
+
+from .utils import FilterOption
 
 
 def check_percentage(value):
@@ -33,12 +36,6 @@ def check_percentage(value):
         raise ArgumentTypeError(
             "{value} not in range [0.0, 100.0]".format(value=value))
     return x
-
-
-def check_non_empty(value):
-    if not value:
-        raise ArgumentTypeError("value should not be empty")
-    return value
 
 
 class GcovrConfigOption(object):
@@ -281,11 +278,18 @@ def _get_value_from_config_entry(cfg_entry, option):
     # parse the value
     if option.type is bool:
         value = cfg_entry.value_as_bool
+
     elif option.type is not None:
+
+        args = ()
+        if isinstance(option.type, FilterOption):
+            args = [os.path.dirname(cfg_entry.filename)]
+
         try:
-            value = option.type(cfg_entry.value)
+            value = option.type(cfg_entry.value, *args)
         except (ValueError, ArgumentTypeError) as err:
             raise cfg_entry.error(str(err))
+
     else:
         value = cfg_entry.value
 
@@ -341,6 +345,26 @@ def merge_options_and_set_defaults(partial_namespaces, all_options=None):
     return target
 
 
+class OutputOrDefault(object):
+    """An output path that may be empty.
+
+    - ``None``: the option is not set
+    - ``OutputOrDefault(None)``: fall back to some default value
+    - ``OutputOrDefault(path)``: use that path
+    """
+
+    def __init__(self, value):
+        self.value = value
+
+    @classmethod
+    def choose(_cls, choices, default=None):
+        """select the first choice that contains a value"""
+        for choice in choices:
+            if choice and choice.value:
+                return choice
+        return default
+
+
 GCOVR_CONFIG_OPTION_GROUPS = [
     {
         "key": "output_options",
@@ -392,6 +416,18 @@ GCOVR_CONFIG_OPTIONS = [
         default='.',
     ),
     GcovrConfigOption(
+        "add_tracefile", ["-a", "--add-tracefile"],
+        help="Combine the coverage data from JSON files. "
+             "Coverage files contains source files structure relative "
+             "to root directory. Those structures are combined "
+             "in the output relative to the current root directory. "
+             "Option can be specified multiple times. "
+             "When option is used gcov is not run to collect "
+             "the new coverage data.",
+        action="append",
+        default=[],
+    ),
+    GcovrConfigOption(
         'search_paths', config='search-path',
         positional=True, nargs='*',
         help="Search these directories for coverage files. "
@@ -430,7 +466,7 @@ GCOVR_CONFIG_OPTIONS = [
         "output", ["-o", "--output"],
         group="output_options",
         help="Print output to this filename. Defaults to stdout. "
-             "Required for --html-details.",
+        "Individual output formats can override this.",
         default=None,
     ),
     GcovrConfigOption(
@@ -457,8 +493,13 @@ GCOVR_CONFIG_OPTIONS = [
     GcovrConfigOption(
         "xml", ["-x", "--xml"],
         group="output_options",
-        help="Generate a Cobertura XML report.",
-        action="store_true",
+        metavar='OUTPUT',
+        help="Generate a Cobertura XML report. "
+             "OUTPUT is optional and defaults to --output.",
+        nargs='?',
+        type=OutputOrDefault,
+        default=None,
+        const=OutputOrDefault(None),
     ),
     GcovrConfigOption(
         "prettyxml", ["--xml-pretty"],
@@ -469,16 +510,25 @@ GCOVR_CONFIG_OPTIONS = [
     GcovrConfigOption(
         "html", ["--html"],
         group="output_options",
-        help="Generate a HTML report.",
-        action="store_true",
+        metavar='OUTPUT',
+        help="Generate a HTML report. "
+             "OUTPUT is optional and defaults to --output.",
+        nargs='?',
+        type=OutputOrDefault,
+        default=None,
+        const=OutputOrDefault(None),
     ),
     GcovrConfigOption(
         "html_details", ["--html-details"],
         group="output_options",
+        metavar="OUTPUT",
         help="Add annotated source code reports to the HTML report. "
-             "Requires --output as a basename for the reports. "
-             "Implies --html.",
-        action="store_true",
+             "Implies --html. "
+             "OUTPUT is optional and defaults to --output.",
+        nargs='?',
+        type=OutputOrDefault,
+        default=None,
+        const=OutputOrDefault(None),
     ),
     GcovrConfigOption(
         "html_title", ["--html-title"],
@@ -536,12 +586,41 @@ GCOVR_CONFIG_OPTIONS = [
         action="store_true",
     ),
     GcovrConfigOption(
+        "sonarqube", ["--sonarqube"],
+        group="output_options",
+        metavar='OUTPUT',
+        help="Generate sonarqube generic coverage report in this file name. "
+             "OUTPUT is optional and defaults to --output.",
+        nargs='?',
+        type=OutputOrDefault,
+        default=None,
+        const=OutputOrDefault(None),
+    ),
+    GcovrConfigOption(
+        "json", ["--json"],
+        group="output_options",
+        metavar='OUTPUT',
+        help="Generate a JSON report. "
+             "OUTPUT is optional and defaults to --output.",
+        nargs='?',
+        type=OutputOrDefault,
+        default=None,
+        const=OutputOrDefault(None),
+    ),
+    GcovrConfigOption(
+        "prettyjson", ["--json-pretty"],
+        group="output_options",
+        help="Pretty-print the JSON report. Implies --json. Default: {default!s}.",
+        action="store_true",
+    ),
+    GcovrConfigOption(
         "filter", ["-f", "--filter"],
         group="filter_options",
         help="Keep only source files that match this filter. "
              "Can be specified multiple times. "
              "If no filters are provided, defaults to --root.",
         action="append",
+        type=FilterOption,
         default=[],
     ),
     GcovrConfigOption(
@@ -550,7 +629,7 @@ GCOVR_CONFIG_OPTIONS = [
         help="Exclude source files that match this filter. "
              "Can be specified multiple times.",
         action="append",
-        type=check_non_empty,
+        type=FilterOption.NonEmpty,
         default=[],
     ),
     GcovrConfigOption(
@@ -559,6 +638,7 @@ GCOVR_CONFIG_OPTIONS = [
         help="Keep only gcov data files that match this filter. "
              "Can be specified multiple times.",
         action="append",
+        type=FilterOption,
         default=[],
     ),
     GcovrConfigOption(
@@ -567,6 +647,7 @@ GCOVR_CONFIG_OPTIONS = [
         help="Exclude gcov data files that match this filter. "
              "Can be specified multiple times.",
         action="append",
+        type=FilterOption,
         default=[],
     ),
     GcovrConfigOption(
@@ -576,7 +657,7 @@ GCOVR_CONFIG_OPTIONS = [
              "while searching raw coverage files. "
              "Can be specified multiple times.",
         action="append",
-        type=check_non_empty,
+        type=FilterOption.NonEmpty,
         default=[],
     ),
     GcovrConfigOption(

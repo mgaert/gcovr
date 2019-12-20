@@ -12,18 +12,18 @@ import subprocess
 import sys
 import io
 
-from .utils import search_file, Logger
+from .utils import search_file, Logger, commonpath
 from .workers import locked_directory
 from .coverage import FileCoverage
 
-output_re = re.compile("[Cc]reating [`'](.*)'$")
-source_re = re.compile("[Cc](annot|ould not) open (source|graph|output) file")
+output_re = re.compile(r"[Cc]reating [`'](.*)'$")
+source_re = re.compile(r"[Cc](annot|ould not) open (source|graph|output) file")
 
 exclude_line_flag = "_EXCL_"
-exclude_line_pattern = re.compile('([GL]COVR?)_EXCL_(LINE|START|STOP)')
+exclude_line_pattern = re.compile(r'([GL]COVR?)_EXCL_(LINE|START|STOP)')
 
-c_style_comment_pattern = re.compile('/\*.*?\*/')
-cpp_style_comment_pattern = re.compile('//.*?$')
+c_style_comment_pattern = re.compile(r'/\*.*?\*/')
+cpp_style_comment_pattern = re.compile(r'//.*?$')
 
 
 def find_existing_gcov_files(search_path, logger, exclude_dirs):
@@ -32,7 +32,7 @@ def find_existing_gcov_files(search_path, logger, exclude_dirs):
     logger.verbose_msg(
         "Scanning directory {} for gcov files...", search_path)
     gcov_files = list(search_file(
-        re.compile(".*\.gcov$").match, search_path,
+        re.compile(r".*\.gcov$").match, search_path,
         exclude_dirs=exclude_dirs))
     logger.verbose_msg(
         "Found {} files (and will process all of them)",
@@ -51,7 +51,7 @@ def find_datafiles(search_path, logger, exclude_dirs):
     logger.verbose_msg(
         "Scanning directory {} for gcda/gcno files...", search_path)
     files = list(search_file(
-        re.compile(".*\.gc(da|no)$").match, search_path,
+        re.compile(r".*\.gc(da|no)$").match, search_path,
         exclude_dirs=exclude_dirs))
     gcda_files = []
     gcno_files = []
@@ -113,14 +113,16 @@ def process_gcov_data(data_fname, covdata, source_fname, options, currdir=None):
         logger.verbose_msg("  Excluding coverage data for file {}", fname)
         return
 
-    parser = GcovParser(fname, logger=logger)
+    key = os.path.normpath(fname)
+
+    parser = GcovParser(key, logger=logger)
     parser.parse_all_lines(
         INPUT,
         exclude_unreachable_branches=options.exclude_unreachable_branches,
         exclude_throw_branches=options.exclude_throw_branches,
         ignore_parse_errors=options.gcov_ignore_parse_errors)
 
-    covdata.setdefault(fname, FileCoverage(fname)).update(parser.coverage)
+    covdata.setdefault(key, FileCoverage(key)).update(parser.coverage)
 
     INPUT.close()
 
@@ -162,7 +164,7 @@ def guess_source_file_name(
 
 
 def guess_source_file_name_via_aliases(gcovname, currdir, data_fname):
-    common_dir = os.path.commonprefix([data_fname, currdir])
+    common_dir = commonpath([data_fname, currdir])
     fname = os.path.realpath(os.path.join(common_dir, gcovname))
     if os.path.exists(fname):
         return fname
@@ -306,13 +308,13 @@ class GcovParser(object):
             if is_non_code(code):
                 self.coverage.line(self.lineno).noncode = True
             else:
-                self.coverage.line(self.lineno).count = 0
+                self.coverage.line(self.lineno)  # sets count to 0 if not present before
             return True
 
         if firstchar in "0123456789":
             # GCOV 8 marks partial coverage
             # with a trailing "*" after the execution count.
-            self.coverage.line(self.lineno).count = int(status.rstrip('*'))
+            self.coverage.line(self.lineno).count += int(status.rstrip('*'))
             return True
 
         return False
@@ -640,6 +642,7 @@ def run_gcov_and_process_files(
     # NB: Currently, we will only parse English output
     env = dict(os.environ)
     env['LC_ALL'] = 'en_US'
+    env['LANGUAGE'] = 'en_US'
 
     logger.verbose_msg(
         "Running gcov: '{cmd}' in '{cwd}'",

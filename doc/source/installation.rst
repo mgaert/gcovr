@@ -7,17 +7,28 @@ Installation
 
 Which environments does ``gcovr`` support?
 
--   Python: 2.7 and 3.4+.
+Python:
+    3.5+.
 
-    The automated tests run on CPython 2.7, 3.4, and 3.6, and PyPy 2.7 and 3.5.
+    The automated tests run on CPython 3.5, CPython 3.7, and PyPy 3.5.
+    Gcovr will only run on Python versions with upstream support.
 
-    Python 2.6 is no longer supported.
-    The last stable release for that Python version was gcovr 3.4.
+    Last gcovr release for old Python versions:
 
--   Operating System: Linux, Windows, and macOS.
+    ====== =====
+    Python gcovr
+    ====== =====
+    2.6    3.4
+    2.7    4.2
+    3.4    4.1
+    ====== =====
 
-    The automated tests run on Ubuntu 14.04 and Windows Server 2012.
+Operating System:
+    Linux, Windows, and macOS.
 
--   Compiler: GCC and Clang.
+    The automated tests run on Ubuntu 16.04 and Windows Server 2012.
+
+Compiler:
+    GCC and Clang.
 
     The automated tests run on GCC 5.
