@@ -13,7 +13,7 @@ import sys
 import io
 
 
-from .utils import aliases, search_file, Logger, commonpath
+from .utils import search_file, Logger, commonpath
 from .workers import locked_directory
 from .coverage import FileCoverage
 
@@ -95,8 +95,8 @@ def get_srcfiles(flist, options):
     files = set()
     for dir_ in flist:
         logger.verbose_msg("Scanning directory {} for cpp/c files...", dir_)
-        src_files = search_file(".*\.(cpp|c)$", dir_,
-                                exclude_dirs=options.exclude_dirs)
+        src_files = list(search_file(re.compile(r".*\.(cpp|c)$").match, dir_,
+                                     exclude_dirs=options.exclude_dirs))
 
         logger.verbose_msg("Found {} cpp/c source files (and will process {})",
                            len(src_files), len(src_files))
@@ -141,8 +141,7 @@ def process_gcov_data(data_fname, covdata, source_fname, options, currdir=None):
         INPUT,
         exclude_unreachable_branches=options.exclude_unreachable_branches,
         exclude_throw_branches=options.exclude_throw_branches,
-        ignore_parse_errors=options.gcov_ignore_parse_errors,
-        gcov_arguments=options.gcov_arguments)
+        ignore_parse_errors=options.gcov_ignore_parse_errors)
 
     covdata.setdefault(key, FileCoverage(key)).update(parser.coverage)
 
@@ -263,7 +262,7 @@ class GcovParser(object):
         # If this is a tag line, we stay on the same line number
         # and can return immediately after processing it.
         # A tag line cannot hold exclusion markers.
-        if self.parse_tag_line(line, exclude_unreachable_branches):
+        if self.parse_tag_line(line, exclude_unreachable_branches, exclude_throw_branches):
             return
 
         # If this isn't a tag line, this is metadata or source code.

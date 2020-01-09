@@ -406,7 +406,6 @@ GCOVR_CONFIG_OPTIONS = [
         help="Print progress messages. "
              "Please include this output in bug reports.",
         action="store_true",
-        default=False
     ),
     GcovrConfigOption(
         "root", ["-r", "--root"],

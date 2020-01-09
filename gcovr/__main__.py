@@ -314,7 +314,6 @@ def collect_coverage_from_gcov(covdata, options, logger):
                         pool.add(process_file, srcfile_, file_)
         contexts = pool.wait()
 
-    covdata = dict()
     toerase = set()
     for context in contexts:
         for fname, cov in context['covdata'].items():

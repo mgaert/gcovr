@@ -15,6 +15,7 @@ import io
 
 from .version import __version__
 from .utils import commonpath, sort_coverage
+from .coverage import FileCoverage
 
 
 class lazy(object):
@@ -48,8 +49,6 @@ def templates():
         lstrip_blocks=True)
 
 
-medium_coverage = 75.0
-high_coverage = 90.0
 low_color = "LightPink"
 medium_color = "#FFFF55"
 high_color = "LightGreen"
@@ -73,12 +72,12 @@ def calculate_coverage(covered, total, nan_value=0.0):
     return nan_value if total == 0 else round(100.0 * covered / total, 1)
 
 
-def coverage_to_color(coverage):
+def coverage_to_color(coverage, medium_threshold, high_threshold):
     if coverage is None:
         return 'LightGray'
-    elif coverage < medium_coverage:
+    elif coverage < medium_threshold:
         return low_color
-    elif coverage < high_coverage:
+    elif coverage < high_threshold:
         return medium_color
     else:
         return high_color
@@ -87,12 +86,14 @@ def coverage_to_color(coverage):
 #
 # Produce an HTML report
 #
-def print_html_report(covdata, options):
+def print_html_report(covdata, output_file, options):
+    medium_threshold = options.html_medium_threshold
+    high_threshold = options.html_high_threshold
     details = options.html_details
-    if options.output is None:
+    if output_file is None:
         details = False
     data = {}
-    data['HEAD'] = "Head"
+    data['HEAD'] = options.html_title
     data['VERSION'] = __version__
     data['TIME'] = str(int(time.time()))
     data['DATE'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -101,8 +102,8 @@ def print_html_report(covdata, options):
     data['low_color'] = low_color
     data['medium_color'] = medium_color
     data['high_color'] = high_color
-    data['COVERAGE_MED'] = medium_coverage
-    data['COVERAGE_HIGH'] = high_coverage
+    data['COVERAGE_MED'] = medium_threshold
+    data['COVERAGE_HIGH'] = high_threshold
     data['CSS'] = templates().get_template('style.css').render(
         low_color=low_color,
         medium_color=medium_color,
@@ -117,26 +118,28 @@ def print_html_report(covdata, options):
     branchTotal = 0
     branchCovered = 0
     for key in covdata.keys():
-        (total, covered, percent) = covdata[key].coverage(show_branch=True)
+        (total, covered, percent) = covdata[key].branch_coverage()
         branchTotal += total
         branchCovered += covered
     data['BRANCHES_EXEC'] = str(branchCovered)
     data['BRANCHES_TOTAL'] = str(branchTotal)
     coverage = calculate_coverage(branchCovered, branchTotal, nan_value=None)
     data['BRANCHES_COVERAGE'] = '-' if coverage is None else str(coverage)
-    data['BRANCHES_COLOR'] = coverage_to_color(coverage)
+    data['BRANCHES_COLOR'] = coverage_to_color(
+        coverage, medium_threshold, high_threshold)
 
     lineTotal = 0
     lineCovered = 0
     for key in covdata.keys():
-        (total, covered, percent) = covdata[key].coverage(show_branch=False)
+        (total, covered, percent) = covdata[key].line_coverage()
         lineTotal += total
         lineCovered += covered
     data['LINES_EXEC'] = str(lineCovered)
     data['LINES_TOTAL'] = str(lineTotal)
     coverage = calculate_coverage(lineCovered, lineTotal)
     data['LINES_COVERAGE'] = str(coverage)
-    data['LINES_COLOR'] = coverage_to_color(coverage)
+    data['LINES_COLOR'] = coverage_to_color(
+        coverage, medium_threshold, high_threshold)
 
     # Generate the coverage output (on a per-package basis)
     # source_dirs = set()
@@ -147,33 +150,19 @@ def print_html_report(covdata, options):
         covdata, show_branch=False,
         by_num_uncovered=options.sort_uncovered,
         by_percent_uncovered=options.sort_percent)
+    cdata_fname = {}
+    cdata_sourcefile = {}
     for f in keys:
         cdata = covdata[f]
         filtered_fname = options.root_filter.sub('', f)
         files.append(filtered_fname)
         dirs.append(os.path.dirname(filtered_fname) + os.sep)
-        cdata._filename = filtered_fname
+        cdata_fname[f] = filtered_fname
         if not details:
-            cdata._sourcefile = None
+            cdata_sourcefile[f] = None
         else:
-            ttmp = os.path.abspath(options.output).split('.')
-            longname = cdata._filename.replace(os.sep, '_')
-            longname_hash = ""
-            while True:
-                if len(ttmp) > 1:
-                    cdata._sourcefile = \
-                        '.'.join(ttmp[:-1]) + \
-                        '.' + longname + longname_hash + \
-                        '.' + ttmp[-1]
-                else:
-                    cdata._sourcefile = \
-                        ttmp[0] + '.' + longname + longname_hash + '.html'
-                # we add a hash at the end and attempt to shorten the
-                # filename if it exceeds common filesystem limitations
-                if len(os.path.basename(cdata._sourcefile)) < 256:
-                    break
-                longname_hash = "_" + hex(zlib.crc32(longname) & 0xffffffff)[2:]
-                longname = longname[(len(cdata._sourcefile) - len(longname_hash)):]
+            cdata_sourcefile[f] = _make_short_sourcename(
+                output_file, filtered_fname)
 
     # Define the common root directory, which may differ from options.root
     # when source files share a common prefix.
@@ -188,37 +177,27 @@ def print_html_report(covdata, options):
 
     nrows = 0
     for f in keys:
-        cdata = covdata[f]
+        cdata = covdata[f]  # type: FileCoverage
         class_lines = 0
         class_hits = 0
         class_branches = 0
         class_branch_hits = 0
-        for line in sorted(cdata.all_lines):
-            hits = cdata.covered.get(line, 0)
-            class_lines += 1
-            if hits > 0:
-                class_hits += 1
-            branches = cdata.branches.get(line)
-            if branches is None:
-                pass
-            else:
-                b_hits = 0
-                for v in branches.values():
-                    if v > 0:
-                        b_hits += 1
-                coverage = 100 * b_hits / len(branches)
-                class_branch_hits += b_hits
-                class_branches += len(branches)
+        class_lines, class_hits, _ = cdata.line_coverage()
+        b_total, b_hits, _ = cdata.branch_coverage()
+        class_branch_hits += b_hits
+        class_branches += b_total
 
-        lines_covered = calculate_coverage(class_hits, class_lines, nan_value=100.0)
-        branches_covered = calculate_coverage(class_branch_hits, class_branches, nan_value=None)
+        lines_covered = calculate_coverage(
+            class_hits, class_lines, nan_value=100.0)
+        branches_covered = calculate_coverage(
+            class_branch_hits, class_branches, nan_value=None)
 
         nrows += 1
         data['ROWS'].append(html_row(
-            options, details, cdata._sourcefile, nrows,
+            options, details, cdata_sourcefile[f], nrows,
             directory=data['DIRECTORY'],
             filename=os.path.relpath(
-                os.path.realpath(cdata._filename), data['DIRECTORY']),
+                os.path.realpath(cdata_fname[f]), data['DIRECTORY']),
             LinesExec=class_hits,
             LinesTotal=class_lines,
             LinesCoverage=lines_covered,
@@ -233,13 +212,12 @@ def print_html_report(covdata, options):
 
     htmlString = templates().get_template('root_page.html').render(**data)
 
-    if options.output is None:
+    if output_file is None:
         sys.stdout.write(htmlString + '\n')
     else:
-        OUTPUT = io.open(options.output, 'w', encoding=options.html_encoding,
-                         errors='xmlcharrefreplace')
-        OUTPUT.write(htmlString + '\n')
-        OUTPUT.close()
+        with io.open(output_file, 'w', encoding=options.html_encoding,
+                     errors='xmlcharrefreplace') as fh:
+            fh.write(htmlString + '\n')
 
     # Return, if no details are requested
     if not details:
@@ -251,65 +229,67 @@ def print_html_report(covdata, options):
     for f in keys:
         cdata = covdata[f]
 
-        data['FILENAME'] = cdata._filename
+        data['FILENAME'] = cdata_fname[f]
         data['ROWS'] = ''
 
-        branchTotal, branchCovered, tmp = cdata.coverage(show_branch=True)
+        branchTotal, branchCovered, coverage = cdata.branch_coverage()
         data['BRANCHES_EXEC'] = str(branchCovered)
         data['BRANCHES_TOTAL'] = str(branchTotal)
-        coverage = calculate_coverage(branchCovered, branchTotal, nan_value=None)
         data['BRANCHES_COVERAGE'] = '-' if coverage is None else str(coverage)
-        data['BRANCHES_COLOR'] = coverage_to_color(coverage)
+        data['BRANCHES_COLOR'] = coverage_to_color(
+            coverage, medium_threshold, high_threshold)
 
-        lineTotal, lineCovered, tmp = cdata.coverage(show_branch=False)
+        lineTotal, lineCovered, coverage = cdata.line_coverage()
         data['LINES_EXEC'] = str(lineCovered)
         data['LINES_TOTAL'] = str(lineTotal)
-        coverage = calculate_coverage(lineCovered, lineTotal)
         data['LINES_COVERAGE'] = str(coverage)
-        data['LINES_COLOR'] = coverage_to_color(coverage)
+        data['LINES_COLOR'] = coverage_to_color(
+            coverage, medium_threshold, high_threshold)
 
         data['ROWS'] = []
         currdir = os.getcwd()
         os.chdir(options.root_dir)
-        INPUT = io.open(data['FILENAME'], 'r', encoding=options.source_encoding,
-                        errors='replace')
-        ctr = 1
-        for line in INPUT:
-            data['ROWS'].append(
-                source_row(ctr, line.rstrip(), cdata)
-            )
-            ctr += 1
-        INPUT.close()
+        with io.open(data['FILENAME'], 'r', encoding=options.source_encoding,
+                     errors='replace') as INPUT:
+            for ctr, line in enumerate(INPUT, 1):
+                data['ROWS'].append(
+                    source_row(ctr, line.rstrip(), cdata.lines.get(ctr))
+                )
         os.chdir(currdir)
 
         htmlString = templates().get_template('source_page.html').render(**data)
-        OUTPUT = io.open(cdata._sourcefile, 'w', encoding=options.html_encoding,
-                         errors='xmlcharrefreplace')
-        OUTPUT.write(htmlString + '\n')
-        OUTPUT.close()
+        with io.open(cdata_sourcefile[f], 'w', encoding=options.html_encoding,
+                     errors='xmlcharrefreplace') as fh:
+            fh.write(htmlString + '\n')
 
 
-def source_row(lineno, source, cdata):
+def source_row(lineno, source, line_cov):
     kwargs = {}
     kwargs['lineno'] = str(lineno)
-    if lineno in cdata.covered:
+    kwargs['linebranch'] = []
+    if line_cov and line_cov.is_covered:
         kwargs['covclass'] = 'coveredLine'
-        kwargs['linebranch'] = ''
         # If line has branches them show them with ticks or crosses
-        if lineno in cdata.branches.keys():
-            branches = cdata.branches.get(lineno)
-            branchcounter = 0
-            for branch in branches:
-                if branches[branch] > 0:
-                    kwargs['linebranch'] += '<span class="takenBranch" title="Branch ' + str(branch) + ' taken ' + str(branches[branch]) + ' times">&check;</span>'
-                else:
-                    kwargs['linebranch'] += '<span class="notTakenBranch" title="Branch ' + str(branch) + ' not taken">&cross;</span>'
-                branchcounter += 1
-                # Wrap at 4 branches to avoid too wide column
-                if (branchcounter > 0) and ((branchcounter % 4) == 0):
-                    kwargs['linebranch'] += '<br/>'
-        kwargs['linecount'] = str(cdata.covered.get(lineno, 0))
-    elif lineno in cdata.uncovered:
+        branches = line_cov.branches
+        branchcounter = 0
+        for branch_id in sorted(branches):
+            branchcounter += 1
+            branch = branches[branch_id]
+            branch_args = {}
+            if branch.is_covered:
+                branch_args['class'] = 'takenBranch'
+                branch_args['message'] = 'Branch {name} taken {count} times'.format(
+                    name=branch_id, count=branch.count)
+                branch_args['symbol'] = '&check;'
+            else:
+                branch_args['class'] = 'notTakenBranch'
+                branch_args['message'] = 'Branch {name} not taken'.format(
+                    name=branch_id)
+                branch_args['symbol'] = '&cross;'
+            branch_args['wrap'] = (branchcounter % 4) == 0
+            kwargs['linebranch'].append(branch_args)
+        kwargs['linecount'] = str(line_cov.count)
+    elif line_cov and line_cov.is_uncovered:
         kwargs['covclass'] = 'uncoveredLine'
         kwargs['linebranch'] = ''
         kwargs['linecount'] = ''
@@ -341,17 +321,50 @@ def html_row(options, details, sourcefile, nrows, **kwargs):
         kwargs['BarBorder'] = "border:white; "
     else:
         kwargs['BarBorder'] = ""
-    if kwargs['LinesCoverage'] < medium_coverage:
+    if kwargs['LinesCoverage'] < options.html_medium_threshold:
         kwargs['LinesColor'] = low_color
         kwargs['LinesBar'] = 'red'
-    elif kwargs['LinesCoverage'] < high_coverage:
+    elif kwargs['LinesCoverage'] < options.html_high_threshold:
         kwargs['LinesColor'] = medium_color
         kwargs['LinesBar'] = 'yellow'
     else:
         kwargs['LinesColor'] = high_color
         kwargs['LinesBar'] = 'green'
 
-    kwargs['BranchesColor'] = coverage_to_color(kwargs['BranchesCoverage'])
-    kwargs['BranchesCoverage'] = '-' if kwargs['BranchesCoverage'] is None else round(kwargs['BranchesCoverage'], 1)
+    kwargs['BranchesColor'] = coverage_to_color(
+        kwargs['BranchesCoverage'], options.html_medium_threshold, options.html_high_threshold)
+    kwargs['BranchesCoverage'] = '-' if kwargs['BranchesCoverage'] is None else round(
+        kwargs['BranchesCoverage'], 1)
 
     return kwargs
+
+
+def _make_short_sourcename(output_file, filename):
+    # type: (str, str) -> str
+    r"""Make a short-ish file path for --html-detail output.
+
+    Args:
+        output_file (str): The --output path.
+        filename (str): Path from root to source code.
+    """
+
+    output_file_parts = os.path.abspath(output_file).split('.')
+    if len(output_file_parts) > 1:
+        output_prefix = '.'.join(output_file_parts[:-1])
+        output_suffix = output_file_parts[-1]
+    else:
+        output_prefix = output_file
+        output_suffix = 'html'
+
+    longname = filename.replace(os.sep, '_')
+    longname_hash = ""
+    while True:
+        sourcename = '.'.join((
+            output_prefix, longname + longname_hash, output_suffix))
+        # we add a hash at the end and attempt to shorten the
+        # filename if it exceeds common filesystem limitations
+        if len(os.path.basename(sourcename)) < 256:
+            break
+        longname_hash = "_" + hex(zlib.crc32(longname) & 0xffffffff)[2:]
+        longname = longname[(len(sourcename) - len(longname_hash)):]
+    return sourcename
