@@ -55,6 +55,7 @@ from .workers import Workers
 from .cobertura_xml_generator import print_xml_report
 from .html_generator import print_html_report
 from .txt_generator import print_text_report
+from .csv_generator import print_csv_report
 from .summary_generator import print_summary
 from .sonarqube_generator import print_sonarqube_report
 from .json_generator import print_json_report
@@ -131,7 +132,7 @@ class Options(object):
 
 
 COPYRIGHT = (
-    "Copyright 2018-2019 Michael Gärtner\n"
+    "Copyright 2018-2020 Michael Gärtner\n"
     "Copyright 2013-2019 the gcovr authors\n"
     "Copyright 2013 Sandia Corporation\n"
     "Under the terms of Contract DE-AC04-94AL85000 with Sandia Corporation,\n"
@@ -289,6 +290,9 @@ def collect_coverage_from_gcov(covdata, options, logger):
             options.search_paths.append(options.objdir)
         if options.workdir is not None:
             options.search_paths.append(options.workdir)
+        if os.environ.get('GCOV_PREFIX'):
+            options.search_paths.append(
+                os.path.realpath(os.environ.get('GCOV_PREFIX')))
 
     for search_path in options.search_paths:
         datafiles.update(find_files(search_path, logger, options.exclude_dirs))
@@ -365,6 +369,14 @@ def print_reports(covdata, options, logger):
         lambda: logger.warn(
             "JSON output skipped - "
             "consider providing output file with `--json=OUTPUT`.")))
+
+    generators.append((
+        lambda: options.csv or options.csvdelim,
+        [options.csv],
+        print_csv_report,
+        lambda: logger.warn(
+            "CSV output skipped - "
+            "consider providing output file with `--csv=OUTPUT`.")))
 
     generators.append((
         lambda: not reports_were_written,

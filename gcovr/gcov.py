@@ -634,7 +634,7 @@ def run_gcov_and_process_files(
         abs_filename, abs_datafilename, covdata, options, logger, error, toerase, chdir, outputdir, tempdir):
     # If the first element of cmd - the executable name - has embedded spaces
     # it probably includes extra arguments.
-    cmd = options.gcov_cmd.split(' ') + [abs_filename, "--all-blocks", "--branch-counts", "--branch-probabilities", "--function-summaries",
+    cmd = options.gcov_cmd.split(' ') + [abs_filename, "--branch-counts", "--branch-probabilities", "--function-summaries",
                                          "--hash-filenames", "--object-directory", os.path.dirname(abs_datafilename)]
 
     # NB: Currently, we will only parse English output

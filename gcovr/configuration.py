@@ -620,6 +620,23 @@ GCOVR_CONFIG_OPTIONS = [
         action="store_true",
     ),
     GcovrConfigOption(
+        "csv", ["--csv"],
+        group="output_options",
+        metavar='OUTPUT',
+        help="Generate a CSV report similar to txt. "
+             "OUTPUT is optional and defaults to --output.",
+        nargs='?',
+        type=OutputOrDefault,
+        default=None,
+        const=OutputOrDefault(None),
+    ),
+    GcovrConfigOption(
+        "csvdelim", ["--csv-delim"],
+        group="output_options",
+        help="CSV dilimiter for the CSV report. Implies --csv. Default: {default!s}.",
+        default=';',
+    ),
+    GcovrConfigOption(
         "filter", ["-f", "--filter"],
         group="filter_options",
         help="Keep only source files that match this filter. "
