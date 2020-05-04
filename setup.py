@@ -27,10 +27,10 @@ version = run_path('./gcovr/version.py')['__version__']
 setup(name='gcovr',
       version=version,
       platforms=["any"],
-      python_requires='>=3.4.4',
+      python_requires='>=3.4',
       packages=['gcovr'],
       install_requires=[
-          'jinja2',
+          'jinja2==2.10',
           'lxml==4.3.3',
       ],
       package_data={

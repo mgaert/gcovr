@@ -33,7 +33,7 @@ import os
 import re
 import sys
 import io
-
+import glob
 from argparse import ArgumentParser
 from os.path import normpath
 from tempfile import mkdtemp
@@ -284,6 +284,7 @@ def collect_coverage_from_gcov(covdata, options, logger):
         process_file = process_existing_gcov_file
 
     # Get data files
+    search_paths = []
     if not options.search_paths:
         options.search_paths = [options.root]
         if options.objdir is not None:
@@ -294,10 +295,20 @@ def collect_coverage_from_gcov(covdata, options, logger):
             options.search_paths.append(
                 os.path.realpath(os.environ.get('GCOV_PREFIX')))
 
-    for search_path in options.search_paths:
-        datafiles.update(find_files(search_path, logger, options.exclude_dirs))
+        search_paths = options.search_paths
+    else:
+        # try to make search path more globing with wildcards
+        for search_path in options.search_paths:
+            paths = glob.glob(search_path)
+            for path in paths:
+                search_paths.append(path)
 
-    srcfiles = get_srcfiles(options.search_paths, options)
+    for search_path in search_paths:
+        if os.path.isdir(search_path):
+            datafiles.update(find_files(
+                search_path, logger, options.exclude_dirs))
+
+    srcfiles = get_srcfiles([options.root], options)
 
     # Get coverage data
     with Workers(options.gcov_parallel, lambda: {
@@ -371,7 +382,7 @@ def print_reports(covdata, options, logger):
             "consider providing output file with `--json=OUTPUT`.")))
 
     generators.append((
-        lambda: options.csv or options.csvdelim,
+        lambda: options.csv,
         [options.csv],
         print_csv_report,
         lambda: logger.warn(
