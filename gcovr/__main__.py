@@ -285,7 +285,7 @@ def collect_coverage_from_gcov(covdata, options, logger):
 
     # Get data files
     search_paths = []
-    if not options.search_paths:
+    if not options.search_paths or options.gcov_files:
         options.search_paths = [options.root]
         if options.objdir is not None:
             options.search_paths.append(options.objdir)

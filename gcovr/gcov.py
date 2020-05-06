@@ -713,10 +713,12 @@ def select_gcov_files_from_stdout(out, gcov_filter, gcov_exclude, logger, chdir,
         if outputdir and outputdir != chdir:
             import shutil
             active_files.append(os.path.join(outputdir, fname))
+            all_files.append(os.path.join(outputdir, fname))
             shutil.copyfile(full, active_files[-1])
         elif tempdir and tempdir != chdir:
             import shutil
             active_files.append(os.path.join(tempdir, fname))
+            all_files.append(os.path.join(tempdir, fname))
             shutil.copyfile(full, active_files[-1])
         else:
             active_files.append(full)
