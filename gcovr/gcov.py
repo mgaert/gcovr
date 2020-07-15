@@ -768,12 +768,17 @@ def apply_filter_include_exclude(
         excluded (bool): True when filename failed the exclude_filters
     """
 
-    filtered = not any(f.match(filename) for f in include_filters)
+    try:
+        filtered = not any(f.match(filename) for f in include_filters)
+    except ValueError:
+        filtered = False
     excluded = False
 
     if filtered:
         return filtered, excluded
 
-    excluded = any(f.match(filename) for f in exclude_filters)
-
+    try:
+        excluded = any(f.match(filename) for f in exclude_filters)
+    except ValueError:
+        excluded = True
     return filtered, excluded
