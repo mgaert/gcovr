@@ -765,13 +765,13 @@ def apply_filter_include_exclude(
 
     returns: (filtered, exclude)
         filtered (bool): True when filename failed the include_filter
-        excluded (bool): True when filename failed the exclude_filters
+        excluded (bool): True when filename not failed the exclude_filters
     """
 
     try:
         filtered = not any(f.match(filename) for f in include_filters)
     except ValueError:
-        filtered = False
+        filtered = True
     excluded = False
 
     if filtered:
